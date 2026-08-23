@@ -1,0 +1,1 @@
+Current activation is Enter. A real wake-word detector can replace it later.

@@ -1,0 +1,9 @@
+numpy
+sounddevice
+soundfile
+torch
+silero-vad
+faster-whisper
+requests
+python-dotenv
+pynput

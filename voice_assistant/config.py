@@ -1,0 +1,66 @@
+from dataclasses import dataclass
+from pathlib import Path
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def env_int(name: str, default: int) -> int:
+    return int(os.getenv(name, default))
+
+
+def env_float(name: str, default: float) -> float:
+    return float(os.getenv(name, default))
+
+
+@dataclass(frozen=True)
+class Config:
+    sample_rate: int = env_int("SAMPLE_RATE", 16000)
+    channels: int = env_int("CHANNELS", 1)
+    chunk_ms: int = env_int("CHUNK_MS", 32)
+
+    hotkey: str = os.getenv("HOTKEY", "ctrl+space")
+
+    vad_threshold: float = env_float("VAD_THRESHOLD", 0.50)
+    min_speech_ms: int = env_int("MIN_SPEECH_MS", 180)
+    end_silence_ms: int = env_int("END_SILENCE_MS", 700)
+    max_utterance_ms: int = env_int("MAX_UTTERANCE_MS", 15000)
+    pre_roll_ms: int = env_int("PRE_ROLL_MS", 400)
+
+    whisper_model: str = os.getenv("WHISPER_MODEL", "large-v3-turbo")
+    whisper_device: str = os.getenv("WHISPER_DEVICE", "cuda")
+    whisper_compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "float16")
+    whisper_language: str = os.getenv("WHISPER_LANGUAGE", "ru")
+    whisper_beam_size: int = env_int("WHISPER_BEAM_SIZE", 5)
+
+    llm_base_url: str = os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080/v1").rstrip("/")
+    llm_api_key: str = os.getenv("LLM_API_KEY", "local")
+    llm_model: str = os.getenv("LLM_MODEL", "local-model")
+    llm_temperature: float = env_float("LLM_TEMPERATURE", 0.2)
+    llm_max_tokens: int = env_int("LLM_MAX_TOKENS", 512)
+
+    piper_bin: str = str(Path.home() / "voice_assistant_mvp/bin/piper/piper")
+    piper_model: str = str(Path.home() / "voice_assistant_mvp/models/piper/ru_RU-irina-medium.onnx")
+
+    piper_speaker: str = os.getenv("PIPER_SPEAKER", "")
+    piper_length_scale: float = env_float("PIPER_LENGTH_SCALE", 1.0)
+
+    debug_dir: Path = Path("debug")
+
+    @property
+    def chunk_samples(self) -> int:
+        return self.sample_rate * self.chunk_ms // 1000
+
+    @property
+    def pre_roll_chunks(self) -> int:
+        return max(1, self.pre_roll_ms // self.chunk_ms)
+
+    @property
+    def end_silence_chunks(self) -> int:
+        return max(1, self.end_silence_ms // self.chunk_ms)
+
+    @property
+    def max_utterance_chunks(self) -> int:
+        return max(1, self.max_utterance_ms // self.chunk_ms)
