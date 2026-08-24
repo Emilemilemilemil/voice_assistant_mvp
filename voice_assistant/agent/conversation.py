@@ -206,10 +206,36 @@ class ConversationManager:
 
         for chunk in self.llm.chat_stream(self.messages):
             chunks.append(chunk)
-            yield chunk
 
         answer = "".join(chunks).strip()
 
+        tool_result = self.tool_router.try_execute(answer)
+
+        if tool_result:
+            self.messages.append(
+                ChatMessage(
+                    "assistant",
+                    answer,
+                )
+            )
+
+            self.messages.append(
+                ChatMessage(
+                    "tool",
+                    tool_result,
+                )
+            )
+
+            for chunk in self.llm.chat_stream(self.messages):
+                yield chunk
+
+            return
+
         self.messages.append(
-            ChatMessage("assistant", answer)
+            ChatMessage(
+                "assistant",
+                answer,
+            )
         )
+
+        yield answer

@@ -27,8 +27,8 @@ class OpenApplicationTool(Tool):
             "firefox"
         ],
 
-        "chromium": [
-            "google-chrome"
+        "google-chrome": [
+            "google-chrome-stable"
         ],
 
         "code": [

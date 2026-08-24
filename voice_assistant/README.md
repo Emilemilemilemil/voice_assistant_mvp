@@ -2,7 +2,7 @@
 
 Modular local voice assistant:
 
-Microphone -> Ctrl+Space activation -> Silero VAD -> faster-whisper -> local OpenAI-compatible LLM -> Piper TTS.
+Microphone -> Enter activation -> Silero VAD -> faster-whisper -> local OpenAI-compatible LLM -> Piper TTS.
 
 The spoken request contains no wake-word name. Activation is a separate event.
 
@@ -45,7 +45,7 @@ If Piper is not configured, the assistant prints the answer instead of speaking 
 python main.py
 ```
 
-Press Ctrl+Space, speak, and stop speaking. VAD detects the end of the utterance.
+Press Enter, speak, and stop speaking. VAD detects the end of the utterance.
 
 The last captured utterance is saved as `debug/last_segment.wav`.
 
