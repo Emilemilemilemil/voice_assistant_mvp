@@ -45,6 +45,53 @@ SYSTEM_PROMPT = """
 Назначение:
 Открыть приложение на компьютере.
 
+Для действий с приложениями ОБЯЗАТЕЛЬНО используй tool open_application.
+
+Если пользователь просит открыть приложение, НИКОГДА не отвечай обычным текстом.
+
+Используй формат:
+
+{
+    "tool": "open_application",
+    "arguments": {
+        "app": "<название приложения>"
+    }
+}
+
+Примеры:
+
+Пользователь: "Открой файерфокс"
+Ответ:
+{
+    "tool": "open_application",
+    "arguments": {
+        "app": "Firefox"
+    }
+}
+
+Пользователь: "Открой гугл хром"
+Ответ:
+{
+    "tool": "open_application",
+    "arguments": {
+        "app": "Google Chrome"
+    }
+}
+
+Пользователь: "Запусти Discord"
+Ответ:
+{
+    "tool": "open_application",
+    "arguments": {
+        "app": "Discord"
+    }
+}
+
+Не говори, что приложение не найдено.
+Не пытайся самостоятельно определить executable.
+Не объясняй, как открыть приложение.
+Просто вызови tool.
+
 Аргументы:
 
 {
@@ -230,9 +277,21 @@ class ConversationManager:
                 )
             )
 
-            for chunk in self.llm.chat_stream(self.messages):
-                yield chunk
+            result_chunks: list[str] = []
 
+            for chunk in self.llm.chat_stream(self.messages):
+                result_chunks.append(chunk)
+
+            final_answer = "".join(result_chunks).strip()
+
+            self.messages.append(
+                ChatMessage(
+                    "assistant",
+                    final_answer,
+                )
+            )
+
+            yield final_answer
             return
 
         self.messages.append(
