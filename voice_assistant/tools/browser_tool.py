@@ -1,3 +1,6 @@
+from urllib.parse import quote
+import subprocess
+
 from tools.base import ToolResult
 
 
@@ -8,6 +11,7 @@ class BrowserSearchTool:
 
         if not query:
             return ToolResult(
+                success=False,
                 output="Не указан поисковый запрос."
             )
 
@@ -16,13 +20,21 @@ class BrowserSearchTool:
             + quote(query)
         )
 
-        subprocess.Popen(
-            [
-                "xdg-open",
-                url,
-            ]
-        )
+        try:
+            subprocess.Popen(
+                [
+                    "xdg-open",
+                    url,
+                ]
+            )
 
-        return ToolResult(
-            output=f"Ищу в браузере: {query}"
-        )
+            return ToolResult(
+                success=True,
+                output=f"Ищу в браузере: {query}"
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                output=f"Ошибка открытия браузера: {e}"
+            )
