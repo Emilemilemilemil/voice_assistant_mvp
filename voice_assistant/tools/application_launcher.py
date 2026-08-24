@@ -272,15 +272,32 @@ class ApplicationLauncher:
 
         try:
             if self.launcher == "gtk-launch":
-                subprocess.Popen(
+
+                process = subprocess.Popen(
                     [
                         "gtk-launch",
                         application.desktop_id,
                     ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
                     start_new_session=True,
                 )
+
+                print(
+                    f"[applications] gtk-launch PID: {process.pid}"
+                )
+
+                return (
+                    True,
+                    f"Открываю {application.name}",
+                )
+                # subprocess.Popen(
+                #     [
+                #         "gtk-launch",
+                #         application.desktop_id,
+                #     ],
+                #     stdout=subprocess.DEVNULL,
+                #     stderr=subprocess.DEVNULL,
+                #     start_new_session=True,
+                # )
 
             else:
                 subprocess.Popen(
