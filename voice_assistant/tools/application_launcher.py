@@ -43,6 +43,9 @@ ALIASES = {
     "вс код": "visual studio code",
     "вс коде": "visual studio code",
     "vs code": "visual studio code",
+
+    # Terminal / Kitty
+    "терминал": "kitty"
 }
 
 
