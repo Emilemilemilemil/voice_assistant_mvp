@@ -51,11 +51,15 @@ SYSTEM_PROMPT = """
     "app": "название приложения"
 }
 
-Примеры поддерживаемых приложений:
-- firefox
-- google-chrome
-- code
-- terminal
+Примеры названий приложений:
+- Firefox
+- Google Chrome
+- Visual Studio Code
+- Discord
+- Telegram
+
+Передавай название приложения так, как его назвал пользователь.
+Не придумывай имя executable и не добавляй .desktop.
 
 
 ====================
