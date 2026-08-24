@@ -1,5 +1,6 @@
 from tools.time_tool import TimeTool
 from tools.application_tool import OpenApplicationTool
+from tools.browser_tool import BrowserSearchTool
 
 
 class ToolRegistry:
@@ -8,6 +9,7 @@ class ToolRegistry:
         self.tools = {
             TimeTool.name: TimeTool(),
             OpenApplicationTool.name: OpenApplicationTool(),
+            BrowserSearchTool.name: BrowserSearchTool(),
         }
 
 

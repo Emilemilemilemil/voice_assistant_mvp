@@ -26,9 +26,6 @@ ALIASES = {
     "гугл хром": "google chrome",
     "chrome": "google chrome",
 
-    # Chromium
-    "хромиум": "chromium",
-    "chromium": "chromium",
 
     # Discord
     "дискорд": "discord",
@@ -36,8 +33,6 @@ ALIASES = {
     # Telegram
     "телеграм": "telegram",
 
-    # Steam
-    "стим": "steam",
 
     # VS Code
     "вс код": "visual studio code",
@@ -45,7 +40,11 @@ ALIASES = {
     "vs code": "visual studio code",
 
     # Terminal / Kitty
-    "терминал": "kitty"
+    "терминал": "kitty",
+
+    # Yandex Music
+    "яндекс музыка": "yandex music",
+    "яндекс музыку": "yandex music",
 }
 
 
@@ -243,9 +242,6 @@ class ApplicationLauncher:
 
     @staticmethod
     def _find_launcher() -> str | None:
-        if shutil.which("gtk-launch"):
-            return "gtk-launch"
-
         if shutil.which("gio"):
             return "gio"
 
@@ -259,7 +255,7 @@ class ApplicationLauncher:
         if self.launcher is None:
             return (
                 False,
-                "Не найден gtk-launch или gio.",
+                "Не найден gio.",
             )
 
         application = self.find(query)
@@ -271,53 +267,36 @@ class ApplicationLauncher:
             )
 
         try:
-            if self.launcher == "gtk-launch":
+            command = [
+                "gio",
+                "launch",
+                str(application.path),
+            ]
 
-                process = subprocess.Popen(
-                    [
-                        "gtk-launch",
-                        application.desktop_id,
-                    ],
-                    start_new_session=True,
-                )
+            print(
+                f"[applications] launching: "
+                f"{' '.join(command)}"
+            )
 
-                print(
-                    f"[applications] gtk-launch PID: {process.pid}"
-                )
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
-                return (
-                    True,
-                    f"Открываю {application.name}",
-                )
-                # subprocess.Popen(
-                #     [
-                #         "gtk-launch",
-                #         application.desktop_id,
-                #     ],
-                #     stdout=subprocess.DEVNULL,
-                #     stderr=subprocess.DEVNULL,
-                #     start_new_session=True,
-                # )
-
-            else:
-                subprocess.Popen(
-                    [
-                        "gio",
-                        "launch",
-                        str(application.path),
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+            print(
+                f"[applications] launcher PID: "
+                f"{process.pid}"
+            )
 
             return (
                 True,
                 f"Открываю {application.name}",
             )
 
-        except Exception as exc:
+        except OSError as exc:
             return (
                 False,
-                f"Ошибка запуска {application.name}: {exc}",
+                f"Не удалось открыть {application.name}: {exc}",
             )

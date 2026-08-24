@@ -1,6 +1,3 @@
-import json
-
-
 class ToolExecutor:
 
     def __init__(self, registry):
@@ -19,4 +16,9 @@ class ToolExecutor:
 
         result = tool.execute(**args)
 
-        return result.output
+        if hasattr(result, "output"):
+            return result.output
+
+        return result
+
+    
