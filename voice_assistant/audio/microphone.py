@@ -32,7 +32,7 @@ class Microphone:
 
     def start(self) -> None:
         self.stream = sd.InputStream(
-            device=19,
+            device=14,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype="float32",
