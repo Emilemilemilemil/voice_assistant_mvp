@@ -16,7 +16,6 @@ from tts.sentence_buffer import SentenceBuffer
 from tts.worker import TTSWorker
 from tools.registry import ToolRegistry
 from agent.tool_executor import ToolExecutor
-from agent.tool_router import ToolRouter
 
 def main():
     config = Config()
@@ -71,11 +70,7 @@ def main():
         registry
     )
 
-    tool_router = ToolRouter(
-        executor
-    )
-
-    conversation = ConversationManager(llm, tool_router)
+    conversation = ConversationManager(llm, executor)
 
     tts = PiperTTS(
         piper_bin=config.piper_bin,
