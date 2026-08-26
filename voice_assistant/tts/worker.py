@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from queue import Queue
-from threading import Thread, Event
+from threading import Thread
 
 from tts.piper import PiperTTS
 
@@ -9,9 +9,7 @@ from tts.piper import PiperTTS
 class TTSWorker:
     def __init__(self, tts: PiperTTS):
         self.tts = tts
-        self.queue = Queue()
-        self.stop_event = Event()
-
+        self.queue: Queue[str | None] = Queue()
         self.thread = Thread(
             target=self._run,
             daemon=True,
@@ -21,7 +19,6 @@ class TTSWorker:
         self.thread.start()
 
     def stop(self):
-        self.stop_event.set()
         self.queue.put(None)
         self.thread.join()
 
@@ -33,8 +30,12 @@ class TTSWorker:
             item = self.queue.get()
 
             if item is None:
+                self.queue.task_done()
                 break
 
-            self.tts.speak(item)
-
-            self.queue.task_done()
+            try:
+                self.tts.speak(item)
+            except Exception as exc:
+                print(f"[tts] playback failed: {exc!r}")
+            finally:
+                self.queue.task_done()
