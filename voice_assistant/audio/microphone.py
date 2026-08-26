@@ -8,10 +8,17 @@ import sounddevice as sd
 class Microphone:
     """Continuously captures mono float32 audio in fixed-size chunks."""
 
-    def __init__(self, sample_rate: int, channels: int, chunk_samples: int):
+    def __init__(
+        self,
+        sample_rate: int,
+        channels: int,
+        chunk_samples: int,
+        device: int | None = None,
+    ):
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_samples = chunk_samples
+        self.device = device
         self.queue: Queue[np.ndarray] = Queue(maxsize=100)
         self.stream: sd.InputStream | None = None
 
@@ -32,7 +39,7 @@ class Microphone:
 
     def start(self) -> None:
         self.stream = sd.InputStream(
-            device=11,
+            device=self.device,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype="float32",

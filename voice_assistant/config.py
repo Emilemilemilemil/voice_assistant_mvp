@@ -15,13 +15,18 @@ def env_float(name: str, default: float) -> float:
     return float(os.getenv(name, default))
 
 
+def env_optional_int(name: str) -> int | None:
+    value = os.getenv(name)
+    return int(value) if value else None
+
+
 @dataclass(frozen=True)
 class Config:
     sample_rate: int = env_int("SAMPLE_RATE", 16000)
     channels: int = env_int("CHANNELS", 1)
     chunk_ms: int = env_int("CHUNK_MS", 32)
 
-    hotkey: str = os.getenv("HOTKEY", "ctrl+space")
+    microphone_device: int | None = env_optional_int("MIC_DEVICE")
 
     vad_threshold: float = env_float("VAD_THRESHOLD", 0.50)
     min_speech_ms: int = env_int("MIN_SPEECH_MS", 180)
@@ -41,13 +46,19 @@ class Config:
     llm_temperature: float = env_float("LLM_TEMPERATURE", 0.2)
     llm_max_tokens: int = env_int("LLM_MAX_TOKENS", 512)
 
-    piper_bin: str = str(Path.home() / "voice_assistant_mvp/bin/piper/piper")
-    piper_model: str = str(Path.home() / "voice_assistant_mvp/models/piper/ru_RU-irina-medium.onnx")
+    piper_bin: str = (
+        os.getenv("PIPER_BIN")
+        or str(Path.home() / "voice_assistant_mvp/bin/piper/piper")
+    )
+    piper_model: str = (
+        os.getenv("PIPER_MODEL")
+        or str(Path.home() / "voice_assistant_mvp/models/piper/ru_RU-irina-medium.onnx")
+    )
 
     piper_speaker: str = os.getenv("PIPER_SPEAKER", "")
     piper_length_scale: float = env_float("PIPER_LENGTH_SCALE", 1.0)
 
-    debug_dir: Path = Path("debug")
+    debug_dir: Path = Path(__file__).resolve().parent / "debug"
 
     @property
     def chunk_samples(self) -> int:
