@@ -286,101 +286,63 @@ class ConversationManager:
                 + self.messages[-self.max_messages:]
             )
 
-    def process(self, user_text: str) -> str:
-        self._add_user_message(user_text)
-
-        answer = self.llm.chat(
-            self.messages
-        )
-
-
-        tool_result = self.tool_router.try_execute(
-            answer
-        )
-
-
-        if tool_result:
-
-            self.messages.append(
-                ChatMessage(
-                    "assistant",
-                    answer
-                )
-            )
-
-
-            self.messages.append(
-                ChatMessage(
-                    "tool",
-                    tool_result
-                )
-            )
-
-
-            answer = self.llm.chat(
-                self.messages
-            )
-
-
-        self.messages.append(
-            ChatMessage(
-                "assistant",
-                answer
-            )
-        )
-
-
-        return answer
-
     def process_stream(self, user_text: str) -> Iterator[str]:
         self._add_user_message(user_text)
 
-        chunks: list[str] = []
+        emitted: list[str] = []
+        withheld: list[str] = []
+        mode = "detect"
 
         for chunk in self.llm.chat_stream(self.messages):
-            chunks.append(chunk)
+            if mode == "plain":
+                emitted.append(chunk)
+                yield chunk
+                continue
 
-        answer = "".join(chunks).strip()
+            if mode == "tool":
+                withheld.append(chunk)
+                continue
 
-        tool_result = self.tool_router.try_execute(answer)
+            withheld.append(chunk)
+            head = "".join(withheld).lstrip()
 
-        if tool_result:
-            self.messages.append(
-                ChatMessage(
-                    "assistant",
-                    answer,
+            if not head:
+                continue
+
+            if head[0] in ("{", "`"):
+                mode = "tool"
+            else:
+                mode = "plain"
+                backlog = withheld
+                withheld = []
+                emitted.extend(backlog)
+                for piece in backlog:
+                    yield piece
+
+        if mode == "tool":
+            candidate = "".join(withheld).strip()
+            tool_result = self.tool_router.try_execute(candidate)
+
+            if tool_result is not None:
+                self.messages.append(
+                    ChatMessage("assistant", candidate)
                 )
-            )
 
-            self.messages.append(
-                ChatMessage(
-                    "tool",
-                    tool_result,
+                self.messages.append(
+                    ChatMessage("tool", tool_result)
                 )
-            )
 
-            result_chunks: list[str] = []
+                for chunk in self.llm.chat_stream(self.messages):
+                    emitted.append(chunk)
+                    yield chunk
+            else:
+                for piece in withheld:
+                    emitted.append(piece)
+                    yield piece
 
-            for chunk in self.llm.chat_stream(self.messages):
-                result_chunks.append(chunk)
+        answer = "".join(emitted).strip()
 
-            final_answer = "".join(result_chunks).strip()
-
+        if answer:
             self.messages.append(
-                ChatMessage(
-                    "assistant",
-                    final_answer,
-                )
+                ChatMessage("assistant", answer)
             )
-
-            yield final_answer
-            return
-
-        self.messages.append(
-            ChatMessage(
-                "assistant",
-                answer,
-            )
-        )
-
-        yield answer
