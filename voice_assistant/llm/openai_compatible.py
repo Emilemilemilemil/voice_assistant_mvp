@@ -16,9 +16,7 @@ class ChatMessage:
 
 @dataclass
 class StreamStats:
-    request_time: float = 0.0
-    ttft: float = 0.0
-    generation_time: float = 0.0
+    ttft: float | None = None
     total_time: float = 0.0
     completion_tokens: int | None = None
     tokens_per_second: float = 0.0
@@ -48,7 +46,7 @@ class LocalLLM:
         messages: list[ChatMessage],
         stream: bool = False,
     ) -> dict:
-        return {
+        payload = {
             "model": self.model,
             "messages": [
                 {
@@ -62,27 +60,16 @@ class LocalLLM:
             "stream": stream,
         }
 
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+
+        return payload
+
     def _headers(self) -> dict:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-
-    def chat(self, messages: list[ChatMessage]) -> str:
-        payload = self._build_payload(messages, stream=False)
-
-        response = requests.post(
-            self.url,
-            headers=self._headers(),
-            json=payload,
-            timeout=300,
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        return data["choices"][0]["message"]["content"].strip()
 
     def chat_stream(
         self,
@@ -92,10 +79,9 @@ class LocalLLM:
         payload = self._build_payload(messages, stream=True)
 
         start_time = time.perf_counter()
-        first_token_time = None
-        completion_tokens = None
 
-        request_start = time.perf_counter()
+        first_token_time: float | None = None
+        completion_tokens: int | None = None
 
         with requests.post(
             self.url,
@@ -107,12 +93,7 @@ class LocalLLM:
 
             response.raise_for_status()
 
-            request_time = time.perf_counter() - request_start
-
             response.encoding = "utf-8"
-
-            first_token_time = None
-            completion_tokens = None
 
             for line in response.iter_lines(decode_unicode=True):
 
@@ -163,18 +144,15 @@ class LocalLLM:
             ttft = first_token_time - start_time
             generation_time = total_time - ttft
         else:
-            ttft = 0.0
-            generation_time = total_time
+            ttft = None
+            generation_time = 0.0
 
-        if (
-            completion_tokens is not None
-            and generation_time > 0
-        ):
+        tokens_per_second = 0.0
+
+        if completion_tokens is not None and generation_time > 0:
             tokens_per_second = (
                 completion_tokens / generation_time
             )
-        else:
-            tokens_per_second = 0.0
 
         self.last_stream_stats = StreamStats(
             ttft=ttft,
