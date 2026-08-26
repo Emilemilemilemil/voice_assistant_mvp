@@ -1,6 +1,7 @@
 from tools.time_tool import TimeTool
 from tools.application_tool import OpenApplicationTool
 from tools.browser_tool import BrowserSearchTool
+from tools.window_tool import CloseWindowTool
 
 
 class ToolRegistry:
@@ -10,6 +11,7 @@ class ToolRegistry:
             TimeTool.name: TimeTool(),
             OpenApplicationTool.name: OpenApplicationTool(),
             BrowserSearchTool.name: BrowserSearchTool(),
+            CloseWindowTool.name: CloseWindowTool(),
         }
 
 
