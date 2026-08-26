@@ -7,6 +7,13 @@ from tools.base import ToolResult
 class BrowserSearchTool:
     name = "browser_search"
 
+    description = """
+    Открывает браузер с поисковым запросом.
+
+    Аргументы:
+    query: текст поиска.
+    """
+
     def execute(self, query: str):
 
         if not query:
