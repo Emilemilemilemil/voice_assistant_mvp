@@ -27,11 +27,16 @@ Copy `.env.example` to `.env` and configure it.
 
 ## LLM
 
-Run any local OpenAI-compatible server. Example endpoint:
+Default setup is a local [Ollama](https://ollama.com) server with `qwen3:8b`:
 
-`http://127.0.0.1:8080/v1/chat/completions`
+`http://127.0.0.1:11434/v1/chat/completions`
 
-Set `LLM_BASE_URL` and `LLM_MODEL` in `.env`.
+Set `LLM_BASE_URL` and `LLM_MODEL` in `.env`. Any OpenAI-compatible server
+works (LM Studio, llama.cpp server, vLLM).
+
+The client sends `reasoning_effort: "none"` (honored by Ollama) so thinking
+models do not burn latency before speech, skips reasoning deltas defensively,
+and uses `keep_alive` so the model stays warm between voice turns.
 
 ## Piper
 
@@ -43,10 +48,12 @@ If Piper is not configured, the assistant prints the answer instead of speaking 
 
 ## Tools
 
-Tool calling works through prompt-injected JSON: the model answers either with
-plain text or with a JSON object `{"tool": ..., "arguments": {...}}`. The router
-executes known tools (time, app launching, browser search, window closing) and
-feeds the result back to the model for a natural-language reply.
+Tools use native OpenAI function calling (`tools=` in the request). Each tool
+declares its JSON Schema in `tools/`; the registry feeds schemas to the model,
+and returned `tool_calls` are executed and fed back as `role: "tool"`
+messages until the model produces a spoken reply (max 3 rounds). Available:
+current time, app launching (.desktop indexing), browser search, Hyprland
+window closing.
 
 ## Run
 
@@ -69,13 +76,12 @@ Implemented:
 - speech segmentation with pre-roll buffer
 - faster-whisper STT
 - conversation history
-- OpenAI-compatible local LLM client (streaming)
+- OpenAI-compatible local LLM client (streaming, native function calling)
 - streaming sentence-level Piper TTS
-- tool calling: time, application launch, browser search, close window
+- tools: time, application launch, browser search, close window
 
 Not yet implemented:
 - real wake-word detector
-- native OpenAI function calling (`tools=` API instead of prompt-injected JSON)
 - permission system
 - long-term memory
 - barge-in / echo cancellation (assistant cannot be interrupted while speaking)
