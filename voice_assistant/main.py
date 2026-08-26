@@ -20,6 +20,13 @@ from agent.tool_router import ToolRouter
 
 def main():
     config = Config()
+
+    if config.sample_rate != 16000 or config.chunk_samples != 512:
+        raise SystemExit(
+            "Silero VAD requires 16 kHz audio in 512-sample chunks: "
+            "set SAMPLE_RATE=16000 and CHUNK_MS=32."
+        )
+
     config.debug_dir.mkdir(parents=True, exist_ok=True)
 
     print("[assistant] initializing...")
@@ -28,6 +35,7 @@ def main():
         config.sample_rate,
         config.channels,
         config.chunk_samples,
+        device=config.microphone_device,
     )
 
     vad = SileroVAD(config.vad_threshold)
@@ -117,39 +125,18 @@ def main():
                 print("[assistant] nothing recognized")
                 continue
 
-            start = time.perf_counter()
-
-            chunks = []
             sentence_buffer = SentenceBuffer()
-
-            first_token = True
 
             print("[assistant] ", end="", flush=True)
 
             for chunk in conversation.process_stream(text):
-
-                if first_token:
-                    print(
-                        f"\n[LLM first token] {time.perf_counter() - start:.3f}s"
-                    )
-                    first_token = False
-
                 print(chunk, end="", flush=True)
-                chunks.append(chunk)
 
-                sentences = sentence_buffer.add(chunk)
-
-                for sentence in sentences:
+                for sentence in sentence_buffer.add(chunk):
                     print()
                     print(f"[sentence] {sentence}")
 
                     tts_worker.speak(sentence)
-
-            print()
-            
-            print(
-                f"[llm total] {time.perf_counter() - start:.3f}s"
-            )
 
             remaining = sentence_buffer.flush()
 
@@ -157,13 +144,17 @@ def main():
                 print()
                 print(f"[sentence] {remaining}")
 
-            print()
+                tts_worker.speak(remaining)
 
-            answer = "".join(chunks).strip()       #!!!!!!!!!!
+            print()
 
             stats = llm.last_stream_stats
 
-            print(f"[llm] TTFT: {stats.ttft:.3f}s")
+            if stats.ttft is not None:
+                print(f"[llm] TTFT: {stats.ttft:.3f}s")
+            else:
+                print("[llm] TTFT: unavailable")
+
             print(f"[llm] total: {stats.total_time:.3f}s")
 
             if stats.completion_tokens is not None:
@@ -173,12 +164,16 @@ def main():
                 print("[llm] tokens: unavailable")
                 print("[llm] speed: unavailable")
 
-            
+            if not tts_worker.queue.empty():
+                print("[assistant] speaking...")
+
+            tts_worker.queue.join()
 
     except KeyboardInterrupt:
         print("\n[assistant] stopping...")
     finally:
         microphone.stop()
+        tts_worker.stop()
 
 
 if __name__ == "__main__":
