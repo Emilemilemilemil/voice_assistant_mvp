@@ -23,6 +23,17 @@ class OpenApplicationTool(Tool):
     - Telegram
     """
 
+    parameters = {
+        "type": "object",
+        "properties": {
+            "app": {
+                "type": "string",
+                "description": "Название приложения, как его назвал пользователь.",
+            }
+        },
+        "required": ["app"],
+    }
+
     def __init__(self) -> None:
         self.launcher = ApplicationLauncher()
 

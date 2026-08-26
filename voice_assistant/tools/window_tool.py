@@ -21,6 +21,17 @@ class CloseWindowTool(Tool):
     - Visual Studio Code
     """
 
+    parameters = {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Название приложения или окна.",
+            }
+        },
+        "required": ["target"],
+    }
+
     def __init__(self) -> None:
         self.manager = WindowManager()
 

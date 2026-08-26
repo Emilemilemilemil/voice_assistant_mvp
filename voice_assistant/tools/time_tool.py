@@ -12,6 +12,11 @@ class TimeTool(Tool):
     Не требует параметров.
     """
 
+    parameters = {
+        "type": "object",
+        "properties": {},
+    }
+
     def execute(self, **kwargs):
 
         now = datetime.now()

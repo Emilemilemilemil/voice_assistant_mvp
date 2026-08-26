@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass
@@ -11,6 +10,17 @@ class ToolResult:
 class Tool:
     name: str
     description: str
+    parameters: dict = {"type": "object", "properties": {}}
 
     def execute(self, **kwargs) -> ToolResult:
         raise NotImplementedError
+
+    def api_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": (self.description or self.name).strip(),
+                "parameters": self.parameters,
+            },
+        }

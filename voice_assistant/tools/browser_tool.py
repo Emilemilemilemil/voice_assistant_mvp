@@ -1,10 +1,10 @@
 from urllib.parse import quote
 import subprocess
 
-from tools.base import ToolResult
+from tools.base import Tool, ToolResult
 
 
-class BrowserSearchTool:
+class BrowserSearchTool(Tool):
     name = "browser_search"
 
     description = """
@@ -13,6 +13,17 @@ class BrowserSearchTool:
     Аргументы:
     query: текст поиска.
     """
+
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Поисковый запрос.",
+            }
+        },
+        "required": ["query"],
+    }
 
     def execute(self, query: str):
 
