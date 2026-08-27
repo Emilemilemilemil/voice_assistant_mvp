@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Iterator
 import json
+import time
 
 from llm.openai_compatible import ChatMessage, LocalLLM
 from agent.tool_executor import ToolExecutor
@@ -36,9 +37,11 @@ class ConversationManager:
         self.executor = executor
         self.max_messages = max_messages
         self.messages = [ChatMessage("system", SYSTEM_PROMPT)]
+        self.last_turn_time: float = 0.0
 
     def reset(self) -> None:
         self.messages = [ChatMessage("system", SYSTEM_PROMPT)]
+        self.last_turn_time = 0.0
 
     def _tool_schemas(self) -> list[dict]:
         return [
@@ -51,11 +54,19 @@ class ConversationManager:
             ChatMessage("user", user_text)
         )
 
+        # Trim history, keeping system prompt + recent semantic turns
+        # Remove old tool/function messages to prevent pollution
         if len(self.messages) > self.max_messages + 1:
-            self.messages = (
-                [self.messages[0]]
-                + self.messages[-self.max_messages:]
-            )
+            system_msg = self.messages[0]
+            recent_msgs = self.messages[-self.max_messages:]
+
+            # Filter out tool messages from the kept history
+            semantic_msgs = [
+                msg for msg in recent_msgs
+                if msg.role not in ("tool",)
+            ]
+
+            self.messages = [system_msg] + semantic_msgs
 
     def _execute_call(self, call: dict) -> str:
         function = call.get("function", {})
@@ -81,6 +92,8 @@ class ConversationManager:
         )
 
     def process_stream(self, user_text: str) -> Iterator[str]:
+        turn_start = time.perf_counter()
+
         self._add_user_message(user_text)
 
         tools = self._tool_schemas()
@@ -96,6 +109,7 @@ class ConversationManager:
 
             if not tool_calls:
                 self._remember_assistant(emitted)
+                self.last_turn_time = time.perf_counter() - turn_start
                 return
 
             self.messages.append(
@@ -127,6 +141,7 @@ class ConversationManager:
             yield chunk
 
         self._remember_assistant(final)
+        self.last_turn_time = time.perf_counter() - turn_start
 
     def _remember_assistant(self, chunks: list[str]) -> None:
         text = "".join(chunks)

@@ -62,6 +62,7 @@ def main():
         model=config.llm_model,
         temperature=config.llm_temperature,
         max_tokens=config.llm_max_tokens,
+        provider=config.llm_provider,
     )
 
     registry = ToolRegistry()
@@ -100,11 +101,17 @@ def main():
             microphone.drain()
             segmenter.reset()
             utterance = None
+            chunks_read = 0
 
-            while utterance is None:
+            while utterance is None and chunks_read < config.max_listen_chunks:
                 chunk = microphone.read()
                 is_speech = vad.is_speech(chunk, config.sample_rate)
                 utterance = segmenter.process(chunk, is_speech)
+                chunks_read += 1
+
+            if utterance is None:
+                print("[assistant] didn't hear you (timeout)")
+                continue
 
             debug_path = config.debug_dir / "last_segment.wav"
             sf.write(debug_path, utterance, config.sample_rate)
@@ -120,49 +127,55 @@ def main():
                 print("[assistant] nothing recognized")
                 continue
 
-            sentence_buffer = SentenceBuffer()
+            try:
+                sentence_buffer = SentenceBuffer()
 
-            print("[assistant] ", end="", flush=True)
+                print("[assistant] ", end="", flush=True)
 
-            for chunk in conversation.process_stream(text):
-                print(chunk, end="", flush=True)
+                for chunk in conversation.process_stream(text):
+                    print(chunk, end="", flush=True)
 
-                for sentence in sentence_buffer.add(chunk):
+                    for sentence in sentence_buffer.add(chunk):
+                        print()
+                        print(f"[sentence] {sentence}")
+
+                        tts_worker.speak(sentence)
+
+                remaining = sentence_buffer.flush()
+
+                if remaining:
                     print()
-                    print(f"[sentence] {sentence}")
+                    print(f"[sentence] {remaining}")
 
-                    tts_worker.speak(sentence)
+                    tts_worker.speak(remaining)
 
-            remaining = sentence_buffer.flush()
-
-            if remaining:
                 print()
-                print(f"[sentence] {remaining}")
 
-                tts_worker.speak(remaining)
+                stats = llm.last_stream_stats
 
-            print()
+                if stats.ttft is not None:
+                    print(f"[llm] first token: {stats.ttft:.3f}s")
+                else:
+                    print("[llm] first token: unavailable")
 
-            stats = llm.last_stream_stats
+                print(f"[llm] turn total: {conversation.last_turn_time:.3f}s")
 
-            if stats.ttft is not None:
-                print(f"[llm] TTFT: {stats.ttft:.3f}s")
-            else:
-                print("[llm] TTFT: unavailable")
+                if stats.completion_tokens is not None:
+                    print(f"[llm] tokens: {stats.completion_tokens}")
+                    print(f"[llm] speed: {stats.tokens_per_second:.2f} tok/s")
+                else:
+                    print("[llm] tokens: unavailable")
+                    print("[llm] speed: unavailable")
 
-            print(f"[llm] total: {stats.total_time:.3f}s")
+                if not tts_worker.queue.empty():
+                    print("[assistant] speaking...")
 
-            if stats.completion_tokens is not None:
-                print(f"[llm] tokens: {stats.completion_tokens}")
-                print(f"[llm] speed: {stats.tokens_per_second:.2f} tok/s")
-            else:
-                print("[llm] tokens: unavailable")
-                print("[llm] speed: unavailable")
+                tts_worker.queue.join()
 
-            if not tts_worker.queue.empty():
-                print("[assistant] speaking...")
-
-            tts_worker.queue.join()
+            except Exception as exc:
+                print(f"\n[assistant] error: {exc}")
+                print("[assistant] recovering...")
+                continue
 
     except KeyboardInterrupt:
         print("\n[assistant] stopping...")

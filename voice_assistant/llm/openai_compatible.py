@@ -54,14 +54,22 @@ class LocalLLM:
         model: str,
         temperature: float,
         max_tokens: int,
+        provider: str = "ollama",
         keep_alive: str = "10m",
+        connect_timeout: float = 10.0,
+        read_timeout: float = 120.0,
+        max_retries: int = 1,
     ):
         self.url = f"{base_url}/chat/completions"
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.provider = provider.lower()
         self.keep_alive = keep_alive
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        self.max_retries = max_retries
 
         self.last_stream_stats = StreamStats()
         self.last_tool_calls: list[dict] = []
@@ -81,9 +89,12 @@ class LocalLLM:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "stream": stream,
-            "reasoning_effort": "none",
-            "keep_alive": self.keep_alive,
         }
+
+        # Ollama-specific parameters
+        if self.provider == "ollama":
+            payload["reasoning_effort"] = "none"
+            payload["keep_alive"] = self.keep_alive
 
         if tools:
             payload["tools"] = tools
@@ -115,80 +126,94 @@ class LocalLLM:
         pending_calls: dict[int, dict] = {}
         self.last_tool_calls = []
 
-        with requests.post(
-            self.url,
-            headers=self._headers(),
-            json=payload,
-            stream=True,
-            timeout=300,
-        ) as response:
+        timeout = (self.connect_timeout, self.read_timeout)
+        last_error: Exception | None = None
 
-            response.raise_for_status()
+        for attempt in range(self.max_retries + 1):
+            try:
+                with requests.post(
+                    self.url,
+                    headers=self._headers(),
+                    json=payload,
+                    stream=True,
+                    timeout=timeout,
+                ) as response:
 
-            response.encoding = "utf-8"
+                    response.raise_for_status()
+                    response.encoding = "utf-8"
 
-            for line in response.iter_lines(decode_unicode=True):
+                    for line in response.iter_lines(decode_unicode=True):
 
-                if not line:
+                        if not line:
+                            continue
+
+                        if not line.startswith("data:"):
+                            continue
+
+                        data = line[len("data:"):].strip()
+
+                        if data == "[DONE]":
+                            break
+
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+
+                        usage = chunk.get("usage")
+
+                        if usage:
+                            completion_tokens = usage.get(
+                                "completion_tokens"
+                            )
+
+                        choices = chunk.get("choices")
+
+                        if not choices:
+                            continue
+
+                        delta = choices[0].get("delta", {})
+
+                        for fragment in delta.get("tool_calls") or []:
+                            index = fragment.get("index", 0)
+                            slot = pending_calls.setdefault(
+                                index,
+                                {"id": "", "name": "", "arguments": ""},
+                            )
+
+                            call_id = fragment.get("id")
+                            if call_id:
+                                slot["id"] = call_id
+
+                            function = fragment.get("function") or {}
+
+                            name_part = function.get("name")
+                            if name_part:
+                                slot["name"] += name_part
+
+                            args_part = function.get("arguments")
+                            if args_part:
+                                slot["arguments"] += args_part
+
+                        content = delta.get("content")
+
+                        if not content:
+                            continue
+
+                        if first_token_time is None:
+                            first_token_time = time.perf_counter()
+
+                        yield content
+
+                # Success - break out of retry loop
+                break
+
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last_error = exc
+                if attempt < self.max_retries:
+                    print(f"[llm] timeout/error, retrying... ({exc})")
                     continue
-
-                if not line.startswith("data:"):
-                    continue
-
-                data = line[len("data:"):].strip()
-
-                if data == "[DONE]":
-                    break
-
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-
-                usage = chunk.get("usage")
-
-                if usage:
-                    completion_tokens = usage.get(
-                        "completion_tokens"
-                    )
-
-                choices = chunk.get("choices")
-
-                if not choices:
-                    continue
-
-                delta = choices[0].get("delta", {})
-
-                for fragment in delta.get("tool_calls") or []:
-                    index = fragment.get("index", 0)
-                    slot = pending_calls.setdefault(
-                        index,
-                        {"id": "", "name": "", "arguments": ""},
-                    )
-
-                    call_id = fragment.get("id")
-                    if call_id:
-                        slot["id"] = call_id
-
-                    function = fragment.get("function") or {}
-
-                    name_part = function.get("name")
-                    if name_part:
-                        slot["name"] += name_part
-
-                    args_part = function.get("arguments")
-                    if args_part:
-                        slot["arguments"] += args_part
-
-                content = delta.get("content")
-
-                if not content:
-                    continue
-
-                if first_token_time is None:
-                    first_token_time = time.perf_counter()
-
-                yield content
+                raise
 
         total_time = time.perf_counter() - start_time
 

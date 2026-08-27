@@ -35,7 +35,13 @@ class OpenApplicationTool(Tool):
     }
 
     def __init__(self) -> None:
-        self.launcher = ApplicationLauncher()
+        self._launcher: ApplicationLauncher | None = None
+        self._init_error: str | None = None
+
+        try:
+            self._launcher = ApplicationLauncher()
+        except Exception as exc:
+            self._init_error = str(exc)
 
     def execute(self, app: str) -> ToolResult:
         if not app or not app.strip():
@@ -44,7 +50,13 @@ class OpenApplicationTool(Tool):
                 output="Не указано приложение.",
             )
 
-        success, output = self.launcher.launch(app)
+        if self._launcher is None:
+            return ToolResult(
+                success=False,
+                output=self._init_error or "Launcher недоступен.",
+            )
+
+        success, output = self._launcher.launch(app)
 
         return ToolResult(
             success=success,

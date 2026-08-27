@@ -33,7 +33,13 @@ class CloseWindowTool(Tool):
     }
 
     def __init__(self) -> None:
-        self.manager = WindowManager()
+        self._manager: WindowManager | None = None
+        self._init_error: str | None = None
+
+        try:
+            self._manager = WindowManager()
+        except RuntimeError as exc:
+            self._init_error = str(exc)
 
     def execute(self, target: str) -> ToolResult:
 
@@ -43,7 +49,13 @@ class CloseWindowTool(Tool):
                 output="Не указано окно.",
             )
 
-        success, output = self.manager.close_window(
+        if self._manager is None:
+            return ToolResult(
+                success=False,
+                output=self._init_error or "Оконный менеджер недоступен.",
+            )
+
+        success, output = self._manager.close_window(
             target
         )
 

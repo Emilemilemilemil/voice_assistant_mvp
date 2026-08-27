@@ -32,6 +32,7 @@ class Config:
     min_speech_ms: int = env_int("MIN_SPEECH_MS", 180)
     end_silence_ms: int = env_int("END_SILENCE_MS", 700)
     max_utterance_ms: int = env_int("MAX_UTTERANCE_MS", 15000)
+    max_listen_ms: int = env_int("MAX_LISTEN_MS", 30000)
     pre_roll_ms: int = env_int("PRE_ROLL_MS", 400)
 
     whisper_model: str = os.getenv("WHISPER_MODEL", "large-v3-turbo")
@@ -45,6 +46,7 @@ class Config:
     llm_model: str = os.getenv("LLM_MODEL", "local-model")
     llm_temperature: float = env_float("LLM_TEMPERATURE", 0.2)
     llm_max_tokens: int = env_int("LLM_MAX_TOKENS", 512)
+    llm_provider: str = os.getenv("LLM_PROVIDER", "ollama")
 
     piper_bin: str = (
         os.getenv("PIPER_BIN")
@@ -75,3 +77,7 @@ class Config:
     @property
     def max_utterance_chunks(self) -> int:
         return max(1, self.max_utterance_ms // self.chunk_ms)
+
+    @property
+    def max_listen_chunks(self) -> int:
+        return max(1, self.max_listen_ms // self.chunk_ms)
