@@ -1,11 +1,14 @@
 from urllib.parse import quote
 
+from safety.risk import RiskLevel
 from tools.base import Tool, ToolResult
 from tools.browser_backend import BrowserBackend, BrowserFactory
 
 
 class BrowserSearchTool(Tool):
     name = "browser_search"
+
+    risk = RiskLevel.SAFE
 
     description = """
     Открывает браузер с поисковым запросом.

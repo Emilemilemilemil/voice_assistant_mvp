@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from safety.risk import RiskLevel
 from tools.base import Tool, ToolResult
 from tools.application_launcher import ApplicationLauncher
 
 
 class OpenApplicationTool(Tool):
     name = "open_application"
+
+    risk = RiskLevel.CONFIRM
 
     description = """
     Открывает установленное графическое приложение.

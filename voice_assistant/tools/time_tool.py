@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from safety.risk import RiskLevel
 from tools.base import Tool, ToolResult
 
 
@@ -11,6 +12,8 @@ class TimeTool(Tool):
     Получить текущее время.
     Не требует параметров.
     """
+
+    risk = RiskLevel.SAFE
 
     parameters = {
         "type": "object",

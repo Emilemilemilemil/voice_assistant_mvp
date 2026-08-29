@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from safety.risk import RiskLevel
+
 
 @dataclass
 class ToolResult:
@@ -11,6 +13,7 @@ class Tool:
     name: str
     description: str
     parameters: dict = {"type": "object", "properties": {}}
+    risk: RiskLevel = RiskLevel.SAFE
 
     def execute(self, **kwargs) -> ToolResult:
         raise NotImplementedError

@@ -15,7 +15,10 @@ from tts.piper import PiperTTS
 from tts.sentence_buffer import SentenceBuffer
 from tts.worker import TTSWorker
 from tools.registry import ToolRegistry
-from agent.tool_executor import ToolExecutor
+from agent.tool_executor_safe import SafeToolExecutor
+from safety.permissions import PermissionManager
+from safety.confirm import ConfirmationPrompter
+from safety.sandbox import default_sandbox
 
 def main():
     config = Config()
@@ -67,8 +70,20 @@ def main():
 
     registry = ToolRegistry()
 
-    executor = ToolExecutor(
-        registry
+    # SAFETY layer
+    permissions = PermissionManager(
+        allowed=set(),  # Empty allow list = rely on risk levels
+        denied=set(),
+        allow_confirm=True,
+    )
+    prompter = ConfirmationPrompter()
+    sandbox = default_sandbox(timeout=30.0)
+
+    executor = SafeToolExecutor(
+        registry,
+        permission_manager=permissions,
+        prompter=prompter,
+        sandbox=sandbox,
     )
 
     conversation = ConversationManager(llm, executor)

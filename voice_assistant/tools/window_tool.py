@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from safety.risk import RiskLevel
 from tools.base import Tool, ToolResult
 from tools.window_manager import WindowManager
 
@@ -7,6 +8,8 @@ from tools.window_manager import WindowManager
 class CloseWindowTool(Tool):
 
     name = "close_window"
+
+    risk = RiskLevel.CONFIRM
 
     description = """
     Закрывает окно приложения.
