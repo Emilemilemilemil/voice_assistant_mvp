@@ -124,7 +124,7 @@ class LocalLLM:
         completion_tokens: int | None = None
 
         pending_calls: dict[int, dict] = {}
-        self.last_tool_calls = []
+        stream_successful = False
 
         timeout = (self.connect_timeout, self.read_timeout)
         last_error: Exception | None = None
@@ -158,6 +158,7 @@ class LocalLLM:
                         try:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
+                            print(f"[llm] warning: skipped malformed JSON chunk: {data[:100]!r}")
                             continue
 
                         usage = chunk.get("usage")
@@ -205,7 +206,8 @@ class LocalLLM:
 
                         yield content
 
-                # Success - break out of retry loop
+                # Success - mark and break out of retry loop
+                stream_successful = True
                 break
 
             except (requests.Timeout, requests.ConnectionError) as exc:
@@ -238,14 +240,19 @@ class LocalLLM:
             tokens_per_second=tokens_per_second,
         )
 
-        self.last_tool_calls = [
-            {
-                "id": slot["id"] or f"call_{index}",
-                "type": "function",
-                "function": {
-                    "name": slot["name"],
-                    "arguments": slot["arguments"],
-                },
-            }
-            for index, slot in sorted(pending_calls.items())
-        ]
+        # Only set tool_calls if stream completed successfully
+        if stream_successful and pending_calls:
+            self.last_tool_calls = [
+                {
+                    "id": slot["id"] or f"call_{index}",
+                    "type": "function",
+                    "function": {
+                        "name": slot["name"],
+                        "arguments": slot["arguments"],
+                    },
+                }
+                for index, slot in sorted(pending_calls.items())
+                if slot["name"]  # Only include complete calls
+            ]
+        else:
+            self.last_tool_calls = []

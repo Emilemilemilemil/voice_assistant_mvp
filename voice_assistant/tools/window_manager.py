@@ -274,18 +274,19 @@ class WindowManager:
     def __init__(self) -> None:
         self.backend = self._create_backend()
 
-    # -----------------------------------------------------
-    # Backend factory
-    # -----------------------------------------------------
-
     @staticmethod
     def _create_backend() -> WindowBackend:
+        try:
+            if shutil.which("hyprctl"):
+                return HyprlandWindowBackend()
+        except RuntimeError:
+            pass
 
-        if shutil.which("hyprctl"):
-            return HyprlandWindowBackend()
-
+        # Future: GNOME (gdbus), KDE (qdbus), macOS (osascript), Windows (WMI)
+        # All backends should implement WindowBackend interface
         raise RuntimeError(
-            "Поддерживаемый оконный менеджер не найден."
+            "Поддерживаемый оконный менеджер не найден. "
+            "Установите Hyprland или настройте альтернативный бэкенд."
         )
 
     # -----------------------------------------------------

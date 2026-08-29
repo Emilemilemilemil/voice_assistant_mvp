@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import subprocess
+from contextlib import contextmanager
 
 import soundfile as sf
 
@@ -20,8 +22,47 @@ from safety.permissions import PermissionManager
 from safety.confirm import ConfirmationPrompter
 from safety.sandbox import default_sandbox
 
+
+@contextmanager
+def tracked_subprocesses():
+    """Context manager that tracks spawned subprocesses for cleanup.
+
+    Usage:
+        with tracked_subprocesses() as tracked:
+            proc = subprocess.Popen([...])  # automatically tracked
+            ...
+        # on exit, all tracked processes are killed gracefully
+    """
+    running: list[subprocess.Popen] = []
+
+    original_popen = subprocess.Popen
+
+    def tracking_popen(*args, **kwargs):
+        proc = original_popen(*args, **kwargs)
+        running.append(proc)
+        return proc
+
+    subprocess.Popen = tracking_popen
+    try:
+        yield running
+    finally:
+        subprocess.Popen = original_popen
+        # Clean up all spawned processes
+        for proc in running:
+            try:
+                if proc.poll() is None:  # Still running
+                    proc.kill()
+                    proc.wait(timeout=2)
+            except Exception:
+                pass
+
+
 def main():
     config = Config()
+
+    # Validate config and print warnings
+    for warning in config.validate():
+        print(f"[config] WARNING: {warning}")
 
     if config.sample_rate != 16000 or config.chunk_samples != 512:
         raise SystemExit(
@@ -74,7 +115,6 @@ def main():
     permissions = PermissionManager(
         allowed=set(),  # Empty allow list = rely on risk levels
         denied=set(),
-        allow_confirm=True,
     )
     prompter = ConfirmationPrompter()
     sandbox = default_sandbox(timeout=30.0)
@@ -108,95 +148,104 @@ def main():
     print("======================================")
     print()
 
-    try:
-        while True:
-            input("[Enter] чтобы говорить... ")
-            print("[assistant] listening...")
+    with tracked_subprocesses() as running_subprocesses:
+        try:
+            while True:
+                input("[Enter] чтобы говорить... ")
+                print("[assistant] listening...")
 
-            microphone.drain()
-            segmenter.reset()
-            utterance = None
-            chunks_read = 0
+                microphone.drain()
+                segmenter.reset()
+                utterance = None
+                chunks_read = 0
 
-            while utterance is None and chunks_read < config.max_listen_chunks:
-                chunk = microphone.read()
-                is_speech = vad.is_speech(chunk, config.sample_rate)
-                utterance = segmenter.process(chunk, is_speech)
-                chunks_read += 1
+                while utterance is None and chunks_read < config.max_listen_chunks:
+                    chunk = microphone.read()
+                    is_speech = vad.is_speech(chunk, config.sample_rate)
+                    utterance = segmenter.process(chunk, is_speech)
+                    chunks_read += 1
 
-            if utterance is None:
-                print("[assistant] didn't hear you (timeout)")
-                continue
+                if utterance is None:
+                    print("[assistant] didn't hear you (timeout)")
+                    conversation.reset()  # Clear stale context after timeout
+                    continue
 
-            debug_path = config.debug_dir / "last_segment.wav"
-            sf.write(debug_path, utterance, config.sample_rate)
+                debug_path = config.debug_dir / "last_segment.wav"
+                sf.write(debug_path, utterance, config.sample_rate)
 
-            duration = len(utterance) / config.sample_rate
-            print(f"[audio] {duration:.2f}s captured")
+                duration = len(utterance) / config.sample_rate
+                print(f"[audio] {duration:.2f}s captured")
 
-            start = time.perf_counter()
-            text = stt.transcribe(utterance, config.sample_rate)
-            print(f"[stt] {text!r} ({time.perf_counter() - start:.2f}s)")
+                start = time.perf_counter()
+                try:
+                    text = stt.transcribe(utterance, config.sample_rate)
+                except Exception as exc:
+                    print(f"[stt] ERROR: {exc}")
+                    print("[assistant] speech recognition failed")
+                    continue
 
-            if not text:
-                print("[assistant] nothing recognized")
-                continue
+                print(f"[stt] {text!r} ({time.perf_counter() - start:.2f}s)")
 
-            try:
-                sentence_buffer = SentenceBuffer()
+                if not text:
+                    print("[assistant] nothing recognized (speech may be too quiet)")
+                    continue
 
-                print("[assistant] ", end="", flush=True)
+                try:
+                    sentence_buffer = SentenceBuffer()
 
-                for chunk in conversation.process_stream(text):
-                    print(chunk, end="", flush=True)
+                    print("[assistant] ", end="", flush=True)
 
-                    for sentence in sentence_buffer.add(chunk):
+                    for chunk in conversation.process_stream(text):
+                        print(chunk, end="", flush=True)
+
+                        for sentence in sentence_buffer.add(chunk):
+                            print()
+                            print(f"[sentence] {sentence}")
+
+                            tts_worker.speak(sentence)
+
+                    remaining = sentence_buffer.flush()
+
+                    if remaining:
                         print()
-                        print(f"[sentence] {sentence}")
+                        print(f"[sentence] {remaining}")
 
-                        tts_worker.speak(sentence)
+                        tts_worker.speak(remaining)
 
-                remaining = sentence_buffer.flush()
-
-                if remaining:
                     print()
-                    print(f"[sentence] {remaining}")
 
-                    tts_worker.speak(remaining)
+                    stats = llm.last_stream_stats
 
-                print()
+                    if stats.ttft is not None:
+                        print(f"[llm] first token: {stats.ttft:.3f}s")
+                    else:
+                        print("[llm] first token: unavailable")
 
-                stats = llm.last_stream_stats
+                    print(f"[llm] turn total: {conversation.last_turn_time:.3f}s")
 
-                if stats.ttft is not None:
-                    print(f"[llm] first token: {stats.ttft:.3f}s")
-                else:
-                    print("[llm] first token: unavailable")
+                    if stats.completion_tokens is not None:
+                        print(f"[llm] tokens: {stats.completion_tokens}")
+                        print(f"[llm] speed: {stats.tokens_per_second:.2f} tok/s")
+                    else:
+                        print("[llm] tokens: unavailable")
+                        print("[llm] speed: unavailable")
 
-                print(f"[llm] turn total: {conversation.last_turn_time:.3f}s")
+                    if not tts_worker.queue.empty():
+                        print("[assistant] speaking...")
 
-                if stats.completion_tokens is not None:
-                    print(f"[llm] tokens: {stats.completion_tokens}")
-                    print(f"[llm] speed: {stats.tokens_per_second:.2f} tok/s")
-                else:
-                    print("[llm] tokens: unavailable")
-                    print("[llm] speed: unavailable")
+                    tts_worker.queue.join()
 
-                if not tts_worker.queue.empty():
-                    print("[assistant] speaking...")
+                except Exception as exc:
+                    print(f"\n[assistant] error: {exc}")
+                    print("[assistant] recovering...")
+                    continue
 
-                tts_worker.queue.join()
-
-            except Exception as exc:
-                print(f"\n[assistant] error: {exc}")
-                print("[assistant] recovering...")
-                continue
-
-    except KeyboardInterrupt:
-        print("\n[assistant] stopping...")
-    finally:
-        microphone.stop()
-        tts_worker.stop()
+        except KeyboardInterrupt:
+            print("\n[assistant] stopping...")
+        finally:
+            microphone.stop()
+            tts_worker.stop()
+            # Subprocess cleanup handled by tracked_subprocesses() context manager
 
 
 if __name__ == "__main__":

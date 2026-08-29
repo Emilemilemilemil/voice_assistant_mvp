@@ -191,6 +191,61 @@ def test_real_tool_registry():
     print("✓ Real ToolRegistry integration works")
 
 
+def test_sandbox_preserves_tool_result():
+    """CRITICAL: Sandbox must preserve ToolResult, not mangle it with str()."""
+    registry = MagicMock()
+    tool = DummyTool()
+    registry.get.return_value = tool
+
+    sandbox = ExecutionSandbox(timeout=30.0)
+    executor = SafeToolExecutor(
+        registry,
+        permission_manager=PermissionManager(),
+        sandbox=sandbox,
+    )
+
+    result = executor.execute({
+        "tool": "dummy",
+        "arguments": {},
+    })
+
+    # Critical assertion: result should be the actual output, not the repr
+    assert result == "dummy result", f"Sandbox mangled result: {result!r}"
+    assert "ToolResult(" not in result, "Sandbox returned repr instead of string"
+    print("✓ Sandbox preserves ToolResult output (not repr)")
+
+
+def test_sandbox_timeout_enforced():
+    """Sandbox should enforce timeout on hung tool."""
+    import time
+    registry = MagicMock()
+    tool = MagicMock()
+    tool.risk = RiskLevel.SAFE
+
+    def slow_executor(**kwargs):
+        time.sleep(35)  # Exceeds 30s timeout
+        return ToolResult(success=True, output="should not see this")
+
+    tool.execute = slow_executor
+    registry.get.return_value = tool
+
+    sandbox = ExecutionSandbox(timeout=1.0)  # Short timeout for test
+    executor = SafeToolExecutor(
+        registry,
+        permission_manager=PermissionManager(),
+        sandbox=sandbox,
+    )
+
+    result = executor.execute({
+        "tool": "slow",
+        "arguments": {},
+    })
+
+    # Should be blocked, not return the slow result
+    assert "sandbox blocked" in result or "timeout" in result.lower()
+    print("✓ Sandbox enforces timeout on hung tools")
+
+
 if __name__ == "__main__":
     print("\n=== SAFETY Layer Integration Tests ===\n")
 
@@ -199,6 +254,8 @@ if __name__ == "__main__":
     test_confirm_tool_with_denial()
     test_permission_deny_list()
     test_permission_allow_list()
+    test_sandbox_preserves_tool_result()
+    test_sandbox_timeout_enforced()
     test_real_tool_registry()
 
     print("\n✓ All SAFETY tests passed!")

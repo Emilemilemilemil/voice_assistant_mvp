@@ -14,26 +14,44 @@ class FasterWhisperSTT:
         beam_size: int,
     ):
         print(f"[stt] loading {model_name}...")
-        self.model = WhisperModel(
-            model_name,
-            device=device,
-            compute_type=compute_type,
-        )
+        try:
+            self.model = WhisperModel(
+                model_name,
+                device=device,
+                compute_type=compute_type,
+            )
+        except Exception as exc:
+            print(f"[stt] ERROR: Whisper model load failed: {exc}")
+            print(f"[stt] Falling back to 'tiny' model with CPU")
+            try:
+                self.model = WhisperModel(
+                    "tiny",
+                    device="cpu",
+                    compute_type="float32",
+                )
+            except Exception as exc2:
+                print(f"[stt] FATAL: Even tiny model failed: {exc2}")
+                raise
         self.language = language or None
         self.beam_size = beam_size
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:
+        if self.model is None:
+            return ""
         if sample_rate != 16000:
             raise ValueError("STT expects 16 kHz audio.")
 
-        segments, _ = self.model.transcribe(
-            audio,
-            language=self.language,
-            beam_size=self.beam_size,
-            vad_filter=False,
-            condition_on_previous_text=False,
-        )
-
-        return " ".join(
-            segment.text.strip() for segment in segments
-        ).strip()
+        try:
+            segments, _ = self.model.transcribe(
+                audio,
+                language=self.language,
+                beam_size=self.beam_size,
+                vad_filter=False,
+                condition_on_previous_text=False,
+            )
+            return " ".join(
+                segment.text.strip() for segment in segments
+            ).strip()
+        except Exception as exc:
+            print(f"[stt] ERROR: Transcription failed: {exc}")
+            return ""

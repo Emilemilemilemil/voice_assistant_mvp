@@ -131,8 +131,31 @@ class LinuxDesktopLauncher(AppLauncherBackend):
             path=path,
         )
 
+    # Security: Whitelist allowed directories - don't launch arbitrary .desktop files
+    ALLOWED_DIRS = (
+        Path("/usr/share/applications"),
+        Path.home() / ".local/share/applications",
+    )
+
     def launch(self, app: Application) -> tuple[bool, str]:
         """Launch application using gio launch."""
+        # Security: Verify the desktop file is in an allowed directory
+        allowed = False
+        for allowed_dir in self.ALLOWED_DIRS:
+            try:
+                app.path.resolve().relative_to(allowed_dir.resolve())
+                allowed = True
+                break
+            except ValueError:
+                continue
+        if not allowed:
+            return (False, f"Security: {app.name} is not in allowed application directory")
+
+        # Security: Check that the .desktop file exists and is readable
+        if not app.path.exists():
+            return (False, f"Desktop file not found: {app.path}")
+        if not app.path.is_file():
+            return (False, f"Not a file: {app.path}")
 
         try:
             command = [

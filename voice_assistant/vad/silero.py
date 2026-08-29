@@ -10,9 +10,16 @@ class SileroVAD:
 
     def __init__(self, threshold: float = 0.5):
         self.threshold = threshold
-        self.model = load_silero_vad()
+        try:
+            self.model = load_silero_vad()
+        except Exception as exc:
+            print(f"[vad] WARNING: Silero VAD model load failed: {exc}")
+            self.model = None
 
     def is_speech(self, chunk: np.ndarray, sample_rate: int) -> bool:
+        if self.model is None:
+            # Fallback: assume speech if chunk has significant energy
+            return np.abs(chunk).mean() > 0.01
         if sample_rate != 16000:
             raise ValueError("SAMPLE_RATE must be 16000 for this VAD wrapper.")
 

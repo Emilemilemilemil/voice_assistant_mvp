@@ -8,7 +8,7 @@ from tools.application_launcher import ApplicationLauncher
 class OpenApplicationTool(Tool):
     name = "open_application"
 
-    risk = RiskLevel.CONFIRM
+    risk = RiskLevel.SAFE  # User requested no confirmation for app launch
 
     description = """
     Открывает установленное графическое приложение.

@@ -75,15 +75,21 @@ class SafeToolExecutor:
         # 3. Execute with optional sandbox
         try:
             if self.sandbox:
-                result = self.sandbox.run(
+                sandbox_result = self.sandbox.run(
                     name,
                     tool.risk,
                     arguments,
                     lambda: tool.execute(**arguments),
                 )
-                if not result.allowed:
-                    return f"[sandbox blocked] {result.error}"
-                output = result.output
+                if not sandbox_result.allowed:
+                    return f"[sandbox blocked] {sandbox_result.error}"
+
+                # Unwrap ToolResult from sandbox's raw_result
+                raw = sandbox_result.raw_result
+                if isinstance(raw, ToolResult):
+                    prefix = "" if raw.success else "[ошибка] "
+                    return prefix + raw.output
+                return sandbox_result.output
             else:
                 result = tool.execute(**arguments)
 

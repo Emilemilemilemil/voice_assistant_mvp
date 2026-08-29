@@ -9,7 +9,7 @@ class CloseWindowTool(Tool):
 
     name = "close_window"
 
-    risk = RiskLevel.CONFIRM
+    risk = RiskLevel.SAFE  # User requested no confirmation for window close
 
     description = """
     Закрывает окно приложения.

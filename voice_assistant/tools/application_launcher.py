@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 from tools.app_launcher_backend import (
@@ -59,6 +60,8 @@ class ApplicationLauncher:
 
     @staticmethod
     def _normalize(value: str) -> str:
+        # Normalize Unicode (NFKC form handles composed/decomposed forms)
+        value = unicodedata.normalize("NFKC", value)
         value = value.lower().strip()
 
         value = value.replace("ё", "е")

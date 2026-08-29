@@ -31,14 +31,15 @@ class PiperTTS:
         else:
             self.audio_player = audio_player
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str) -> bool:
+        """Synthesize and play speech. Returns True on success, False on failure."""
         if not self.piper_bin or not self.model:
             print(f"[tts-disabled] {text}")
-            return
+            return False
 
         if self.audio_player is None:
             print(f"[tts-no-player] {text}")
-            return
+            return False
 
         with tempfile.TemporaryDirectory(prefix="assistant_tts_") as tmp:
             wav_path = Path(tmp) / "response.wav"
@@ -53,12 +54,26 @@ class PiperTTS:
             if self.speaker:
                 command += ["--speaker", self.speaker]
 
-            subprocess.run(
-                command,
-                input=text,
-                text=True,
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
+            try:
+                subprocess.run(
+                    command,
+                    input=text,
+                    text=True,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+            except subprocess.CalledProcessError as exc:
+                print(f"[tts] Piper failed (exit {exc.returncode}): {exc.stderr}")
+                return False
+            except FileNotFoundError:
+                print(f"[tts] Piper binary not found: {self.piper_bin}")
+                return False
+            except Exception as exc:
+                print(f"[tts] Unexpected error: {exc}")
+                return False
 
-            self.audio_player.play(wav_path)
+            success, message = self.audio_player.play(wav_path)
+            if not success:
+                print(f"[tts] {message}")
+            return success

@@ -4,7 +4,7 @@ import json
 import time
 
 from llm.openai_compatible import ChatMessage, LocalLLM
-from agent.tool_executor import ToolExecutor
+from agent.tool_protocol import Executable
 
 
 SYSTEM_PROMPT = """
@@ -30,7 +30,7 @@ class ConversationManager:
     def __init__(
         self,
         llm: LocalLLM,
-        executor: ToolExecutor,
+        executor: Executable,
         max_messages: int = 20,
     ):
         self.llm = llm
@@ -38,10 +38,14 @@ class ConversationManager:
         self.max_messages = max_messages
         self.messages = [ChatMessage("system", SYSTEM_PROMPT)]
         self.last_turn_time: float = 0.0
+        # Track tool errors to prevent infinite loops
+        self._tool_errors: dict[str, int] = {}
+        self._max_tool_errors: int = 2
 
     def reset(self) -> None:
         self.messages = [ChatMessage("system", SYSTEM_PROMPT)]
         self.last_turn_time = 0.0
+        self._tool_errors.clear()
 
     def _tool_schemas(self) -> list[dict]:
         return [
@@ -60,11 +64,16 @@ class ConversationManager:
             system_msg = self.messages[0]
             recent_msgs = self.messages[-self.max_messages:]
 
-            # Filter out tool messages from the kept history
-            semantic_msgs = [
-                msg for msg in recent_msgs
-                if msg.role not in ("tool",)
-            ]
+            # Filter out tool messages and assistant messages with dangling tool_calls
+            semantic_msgs = []
+            for msg in recent_msgs:
+                if msg.role == "tool":
+                    continue  # Drop tool responses
+                if msg.role == "assistant" and msg.tool_calls:
+                    # Assistant with tool_calls needs matching tool responses
+                    # Since we're dropping tool messages, drop this too
+                    continue
+                semantic_msgs.append(msg)
 
             self.messages = [system_msg] + semantic_msgs
 
@@ -121,16 +130,45 @@ class ConversationManager:
             )
 
             for call in tool_calls:
+                tool_name = call['function']['name']
                 result = self._execute_call(call)
 
-                print(f"[tool] {call['function']['name']} -> {result!r}")
+                print(f"[tool] {tool_name} -> {result!r}")
+
+                # Track tool errors to prevent infinite loops
+                # Check for error prefix from SafeToolExecutor or other failure signals
+                is_error = (
+                    result.startswith("[ошибка]")
+                    or result.startswith("[permission denied]")
+                    or result.startswith("[sandbox blocked]")
+                    or result.startswith("[confirmation declined]")
+                )
+                if is_error:
+                    self._tool_errors[tool_name] = self._tool_errors.get(tool_name, 0) + 1
+                    if self._tool_errors[tool_name] >= self._max_tool_errors:
+                        # Give up on this tool - inject a final message
+                        result = f"[{tool_name} failed {self._max_tool_errors} times, giving up]"
+                        self.messages.append(
+                            ChatMessage(
+                                role="tool",
+                                content=result,
+                                tool_call_id=call["id"],
+                                name=tool_name,
+                            )
+                        )
+                        # Force a final response without tools
+                        tools = None
+                        break
+                else:
+                    # Reset error count on success
+                    self._tool_errors.pop(tool_name, None)
 
                 self.messages.append(
                     ChatMessage(
                         role="tool",
                         content=result,
                         tool_call_id=call["id"],
-                        name=call["function"]["name"],
+                        name=tool_name,
                     )
                 )
 

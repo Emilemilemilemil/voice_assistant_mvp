@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -81,3 +82,32 @@ class Config:
     @property
     def max_listen_chunks(self) -> int:
         return max(1, self.max_listen_ms // self.chunk_ms)
+
+    def validate(self) -> list[str]:
+        """Validate config and return list of warnings."""
+        warnings: list[str] = []
+        if not 0.0 <= self.vad_threshold <= 1.0:
+            warnings.append(
+                f"VAD_THRESHOLD={self.vad_threshold} is out of range [0.0, 1.0]"
+            )
+        elif self.vad_threshold > 0.9:
+            warnings.append(
+                f"VAD_THRESHOLD={self.vad_threshold} is very high — "
+                "loud speech may not be detected"
+            )
+        elif self.vad_threshold < 0.2:
+            warnings.append(
+                f"VAD_THRESHOLD={self.vad_threshold} is very low — "
+                "background noise may trigger false detections"
+            )
+        if self.min_speech_ms < 50:
+            warnings.append(
+                f"MIN_SPEECH_MS={self.min_speech_ms} is very low — "
+                "may split utterances on brief pauses"
+            )
+        if self.end_silence_ms < 200:
+            warnings.append(
+                f"END_SILENCE_MS={self.end_silence_ms} is very low — "
+                "may cut off speech mid-sentence"
+            )
+        return warnings

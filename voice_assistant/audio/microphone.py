@@ -21,6 +21,7 @@ class Microphone:
         self.device = device
         self.queue: Queue[np.ndarray] = Queue(maxsize=100)
         self.stream: sd.InputStream | None = None
+        self._overflow_warned = False
 
     def _callback(self, indata, frames, time, status):
         if status:
@@ -31,11 +32,16 @@ class Microphone:
         try:
             self.queue.put_nowait(chunk)
         except Exception:
+            # Queue full - drop oldest chunk and insert new one
+            # Warn once per session to avoid spam
+            if not self._overflow_warned:
+                print(f"[audio] WARNING: queue overflow, dropping oldest chunks (processing slower than capture)")
+                self._overflow_warned = True
             try:
                 self.queue.get_nowait()
                 self.queue.put_nowait(chunk)
             except Exception:
-                pass
+                pass  # Silent recovery after first warning
 
     def start(self) -> None:
         self.stream = sd.InputStream(

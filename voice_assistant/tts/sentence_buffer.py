@@ -38,9 +38,12 @@ class SentenceBuffer:
         if len(self.buffer) < self.min_length:
             return None
 
-        # Find sentence-ending punctuation followed by whitespace or end of text
-        # This avoids breaking on abbreviations like "т. д.", "г.", decimals "3.14"
-        pattern = r'[.!?](?=\s|$)'
+        # Find sentence-ending punctuation followed by whitespace and:
+        # - a capital letter (start of next sentence), OR
+        # - end of string
+        # This avoids breaking on abbreviations like "т. д.", "др." or decimals "3.14"
+        # while still splitting on real sentence boundaries.
+        pattern = r'[.!?](?=\s+[A-ZА-ЯЁ]|\s*$)'
 
         match = re.search(pattern, self.buffer[self.min_length:])
 

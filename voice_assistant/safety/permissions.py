@@ -27,11 +27,9 @@ class PermissionManager:
         self,
         allowed: set[str] | None = None,
         denied: set[str] | None = None,
-        allow_confirm: bool = True,
     ) -> None:
         self._allowed: set[str] = set(allowed or ())
         self._denied: set[str] = set(denied or ())
-        self._allow_confirm = allow_confirm
 
     def deny(self, tool_name: str) -> None:
         self._denied.add(tool_name)
@@ -39,9 +37,6 @@ class PermissionManager:
     def allow(self, tool_name: str) -> None:
         self._allowed.add(tool_name)
         self._denied.discard(tool_name)
-
-    def set_confirm_enabled(self, enabled: bool) -> None:
-        self._allow_confirm = enabled
 
     def is_explicitly_allowed(self, tool_name: str) -> bool:
         return tool_name in self._allowed
@@ -64,11 +59,13 @@ class PermissionManager:
             return PermissionDecision(allowed=True, reason="explicitly allowed")
 
         if risk_level >= 2:
+            # DESTRUCTIVE: Block by default, but allow if explicitly allowed
+            # (Confirmation is handled by executor, not here)
             return PermissionDecision(
                 allowed=False,
                 reason=(
-                    f"Tool '{tool_name}' is destructive and requires "
-                    "explicit allow policy."
+                    f"Tool '{tool_name}' is destructive. "
+                    "Add to allow list to enable, or set to confirm."
                 ),
             )
 
