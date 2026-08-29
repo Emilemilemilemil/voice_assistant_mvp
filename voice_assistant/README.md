@@ -135,6 +135,17 @@ Prevents malicious `.desktop` files with destructive `Exec=` lines from being ex
 ### Unicode Normalization
 `ApplicationLauncher` uses `unicodedata.normalize("NFKC", ...)` before matching, ensuring consistent matching regardless of composed/decomposed Unicode forms.
 
+### Filesystem Tools (`tools/filesystem.py`)
+- `fs_guard(path)` resolves symlinks, then enforces the path is inside `FS_ROOT` (default `~`). Outside the boundary → deny.
+- Token blacklist rejects any path component containing `sudo`, `pkexec`, `doas`, or `su` — privilege-escalation attempts cannot pass through `run_script`.
+- DESTRUCTIVE tools (`delete_file`, `delete_directory`, `run_script`) are blocked unless listed in `ALLOWED_DESTRUCTIVE_TOOLS` in `.env` AND the user confirms.
+
+### System Tools (`tools/system_tool.py`)
+- `SystemBackend` ABC abstracts all OS-specific operations; `LinuxSystemBackend` uses per-user binaries (`pactl`, `ps`, `wl-copy`/`wl-paste`, `grim`, `wf-recorder`, `loginctl --user`) — **no root required**.
+- macOS/Windows backends exist as stubs that return "not yet implemented"; factory falls back to a generic unavailable backend if Linux binaries are missing.
+- DESTRUCTIVE tools (`kill_process`, `system_power`) are blocked unless listed in `ALLOWED_DESTRUCTIVE_TOOLS` in `.env` AND the user confirms.
+- `take_screenshot` / `start_recording` are restricted to the home directory; absolute paths are rejected.
+
 ## Run
 
 ```bash
@@ -163,6 +174,8 @@ All configuration is via environment variables (`.env` file). See `.env.example`
 - `WHISPER_MODEL`, `WHISPER_DEVICE` — STT model and device (cuda/cpu); includes automatic fallback to `tiny` CPU model
 - `PIPER_BIN`, `PIPER_MODEL` — TTS binary and voice model paths
 - `VAD_THRESHOLD` — validated at startup (default 0.50, range [0.0, 1.0])
+- `FS_ROOT` — filesystem tool boundary (default `~`); tools cannot escape this directory
+- `ALLOWED_DESTRUCTIVE_TOOLS` — comma-separated list of destructive tools enabled (e.g. `delete_file,system_power`); empty by default
 
 ## Bug Fixes (Implemented)
 
@@ -223,8 +236,8 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 ### TOOLS — partial
 - [x] Applications — launch via `gio` + `.desktop` indexing + security validation (+ NFKC normalization)
-- [ ] Filesystem
-- [ ] System (volume / brightness / processes)
+- [x] Filesystem — `fs_guard` (symlink resolution + FS_ROOT boundary + token blacklist); SAFE (`read`, `list`, `search`), CONFIRM (`write`, `create_dir`, `copy`, `move`), DESTRUCTIVE (`delete_file`, `delete_dir`, `run_script`) gated by `.env` allow-list + confirmation
+- [x] System — `SystemBackend` ABC + `LinuxSystemBackend` (pactl/ps/wl-clipboard/grim/wf-recorder/loginctl); SAFE (`volume`, `clipboard`, `screenshot`, `recording`, `processes`), DESTRUCTIVE (`kill_process`, `system_power`) gated by `.env` allow-list; macOS/Windows stubs included; no-root enforcement (per-user binaries only)
 - [x] Window management — `close_window` (Hyprland 0.55+; graceful degradation; abstracted `WindowBackend` interface)
 - [ ] Media
 - [~] Web — `browser_search` opens a Google tab via `xdg-open`; no fetch/parse
@@ -276,14 +289,16 @@ main.py
 ├── ConversationManager (history + tool orchestration + error tracking)
 │   ├── LocalLLM (OpenAI-compatible streaming; clean stream state; malformed chunk logging)
 │   └── SafeToolExecutor (SAFETY layer integration)
-│       ├── PermissionManager (allow/deny; confirmation bypass)
+│       ├── PermissionManager (allow/deny; destructive gating via .env)
 │       ├── ConfirmationPrompter (interactive/non-interactive)
 │       ├── ExecutionSandbox (audit + timeout + raw result preservation)
 │       └── ToolRegistry (lazy tool loading)
 │           ├── TimeTool (SAFE)
 │           ├── OpenApplicationTool (SAFE; security-validated .desktop)
 │           ├── BrowserSearchTool (SAFE; URL-quoted query)
-│           └── CloseWindowTool (SAFE; abstracted WindowBackend)
+│           ├── CloseWindowTool (SAFE; abstracted WindowBackend)
+│           ├── FilesystemTool* (SAFE/CONFIRM/DESTRUCTIVE; fs_guard security)
+│           └── SystemTool* (SAFE/DESTRUCTIVE; SystemBackend; no-root)
 ├── SentenceBuffer (streaming sentence splitter; NFKC normalization support)
 └── TTSWorker (background Piper thread; isolated from crashes)
     └── PiperTTS → AudioPlayer
@@ -354,6 +369,8 @@ For tool execution (`SafeToolExecutor`):
 | App launching | ✅ `.desktop` + security validation | ⏳ Future | ⏳ Future |
 | Browser opening | ✅ `xdg-open` | ⏳ Future | ⏳ Future |
 | Window management | ✅ Hyprland (abstracted) | ⏳ Future | ⏳ Future |
+| Filesystem tools | ✅ fs_guard + home-only + token blacklist | ⏳ Future | ⏳ Future |
+| System tools | ✅ pactl/ps/wl-clipboard/grim/wf-recorder/loginctl | ⏳ Future | ⏳ Future |
 | Safety layer | ✅ Full (permission + sandbox + confirmation) | ⏳ Future | ⏳ Future |
 
 **Adding a new platform:** Implement ~150 LOC of backend classes (e.g., `AFPlayPlayer`, `MacOSLauncher`). Zero callsite changes required for tools; SAFETY layer applies globally.
@@ -392,6 +409,7 @@ Bug reports and PRs welcome. For major changes, open an issue first.
 
 - `test_safety.py`: SAFETY layer integration (sandbox behavior, confirmation, permission, error tracking)
 - `test_microphone.py`: Microphone device testing
+- `test_filesystem_system.py`: Filesystem tools (`fs_guard`, SAFE/CONFIRM/DESTRUCTIVE), system backend factory, system tools
 
 Add sandbox-covered test cases for any new tool to prevent the critical `str()` mangling bug (fixed: raw `ToolResult` preserved through `SandboxResult.raw_result`).
 

@@ -11,10 +11,38 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
         self._tool_classes = {
+            # Time
             "get_current_time": "tools.time_tool:TimeTool",
+            # Applications
             "open_application": "tools.application_tool:OpenApplicationTool",
-            "browser_search": "tools.browser_tool:BrowserSearchTool",
             "close_window": "tools.window_tool:CloseWindowTool",
+            # Web
+            "browser_search": "tools.browser_tool:BrowserSearchTool",
+            # Filesystem (SAFE)
+            "read_file": "tools.filesystem:ReadFileTool",
+            "list_directory": "tools.filesystem:ListDirectoryTool",
+            "search_files": "tools.filesystem:SearchFilesTool",
+            # Filesystem (CONFIRM)
+            "write_file": "tools.filesystem:WriteFileTool",
+            "create_directory": "tools.filesystem:CreateDirectoryTool",
+            "copy_file": "tools.filesystem:CopyFileTool",
+            "move_file": "tools.filesystem:MoveFileTool",
+            # Filesystem (DESTRUCTIVE)
+            "delete_file": "tools.filesystem:DeleteFileTool",
+            "delete_directory": "tools.filesystem:DeleteDirectoryTool", # not destructive 
+            "run_script": "tools.filesystem:RunScriptTool",
+            # System (SAFE)
+            "get_volume": "tools.system_tool:GetVolumeTool",
+            "set_volume": "tools.system_tool:SetVolumeTool",
+            "list_processes": "tools.system_tool:ListProcessesTool",
+            "get_clipboard": "tools.system_tool:GetClipboardTool",
+            "set_clipboard": "tools.system_tool:SetClipboardTool",
+            "take_screenshot": "tools.system_tool:TakeScreenshotTool",
+            "start_recording": "tools.system_tool:StartRecordingTool",
+            "stop_recording": "tools.system_tool:StopRecordingTool",
+            # System (DESTRUCTIVE)
+            "kill_process": "tools.system_tool:KillProcessTool",
+            "system_power": "tools.system_tool:SystemPowerTool",
         }
 
     def get(self, name: str) -> Tool | None:

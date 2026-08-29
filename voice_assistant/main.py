@@ -112,8 +112,9 @@ def main():
     registry = ToolRegistry()
 
     # SAFETY layer
+    # Wire destructive tools allow-list from config
     permissions = PermissionManager(
-        allowed=set(),  # Empty allow list = rely on risk levels
+        allowed=config.allowed_destructive_tools,
         denied=set(),
     )
     prompter = ConfirmationPrompter()

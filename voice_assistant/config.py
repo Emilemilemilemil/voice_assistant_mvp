@@ -61,6 +61,23 @@ class Config:
     piper_speaker: str = os.getenv("PIPER_SPEAKER", "")
     piper_length_scale: float = env_float("PIPER_LENGTH_SCALE", 1.0)
 
+    # Filesystem tools
+    fs_root: Path = Path(
+        os.getenv("FS_ROOT") or str(Path.home())
+    )
+    fs_max_read_bytes: int = env_int("FS_MAX_READ_BYTES", 5_242_880)  # 5 MB
+    fs_max_read_lines: int = env_int("FS_MAX_READ_LINES", 10_000)
+
+    # Destructive tools (delete_file, delete_directory, kill_process,
+    # system_power, run_script) — comma-separated env var, empty by
+    # default (destructive tools denied unless explicitly enabled).
+    # Even when listed, each invocation still prompts for confirmation.
+    allowed_destructive_tools: frozenset[str] = frozenset(
+        t.strip()
+        for t in os.getenv("ALLOWED_DESTRUCTIVE_TOOLS", "").split(",")
+        if t.strip()
+    )
+
     debug_dir: Path = Path(__file__).resolve().parent / "debug"
 
     @property
