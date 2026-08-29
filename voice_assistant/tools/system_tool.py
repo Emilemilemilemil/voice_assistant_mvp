@@ -288,7 +288,7 @@ class TakeScreenshotTool(Tool):
             )
         # Resolve to home
         resolved = (self._config.fs_root / destination).resolve()
-        if not str(resolved).startswith(str(self._config.fs_root.resolve())):
+        if not str(resolved).startswith(str(self._config.fs_root)):
             return ToolResult(
                 success=False,
                 output="Путь выходит за пределы домашней директории.",
@@ -349,7 +349,7 @@ class StartRecordingTool(Tool):
                 output="Путь должен быть относительным (в домашней директории).",
             )
         resolved = (self._config.fs_root / destination).resolve()
-        if not str(resolved).startswith(str(self._config.fs_root.resolve())):
+        if not str(resolved).startswith(str(self._config.fs_root)):
             return ToolResult(
                 success=False,
                 output="Путь выходит за пределы домашней директории.",
@@ -456,6 +456,9 @@ class KillProcessTool(Tool):
         )
 
 
+VALID_ACTIONS: set[str] = {"sleep", "hibernate", "shutdown", "reboot", "logout"}
+
+
 class SystemPowerTool(Tool):
     name = "system_power"
     risk = RiskLevel.DESTRUCTIVE
@@ -497,14 +500,12 @@ class SystemPowerTool(Tool):
                 success=False,
                 output=f"Инструмент недоступен: {self._init_error}",
             )
-        try:
-            action_enum: PowerAction = action  # type: ignore
-        except ValueError:
+        if action not in VALID_ACTIONS:
             return ToolResult(
                 success=False,
-                output=f"Неизвестное действие: {action}",
+                output=f"Неизвестное действие: {action}. Допустимые: {', '.join(sorted(VALID_ACTIONS))}.",
             )
-        result = self._backend.power(action_enum)
+        result = self._backend.power(action)
         return ToolResult(
             success=result.success,
             output=result.message,

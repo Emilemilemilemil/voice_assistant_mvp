@@ -116,35 +116,71 @@ class SystemBackend(abc.ABC):
 
 class LinuxSystemBackend(SystemBackend):
     def __init__(self) -> None:
-        # Verify required binaries are present
-        self._available = True
-        self._missing: list[str] = []
-        for cmd in ["pactl", "ps", "wl-copy", "wl-paste", "grim", "wf-recorder"]:
-            if not shutil.which(cmd):
-                self._missing.append(cmd)
-        if self._missing:
-            self._available = False
+        # Per-capability binary checks (not a single global flag)
+        self._capabilities: dict[str, bool] = {}
+        capabilities = {
+            "volume": "pactl",
+            "processes": "ps",
+            "clipboard_in": "wl-paste",
+            "clipboard_out": "wl-copy",
+            "clipboard_fallback": "xclip",
+            "screenshot": "grim",
+            "recording": "wf-recorder",
+            "recording_fallback": "ffmpeg",
+            "power": "loginctl",
+        }
+        for cap, cmd in capabilities.items():
+            self._capabilities[cap] = shutil.which(cmd) is not None
         # Recording state
         self._recording_pid: int | None = None
         self._recording_start: float = 0.0
 
-    def _unsupported(self) -> SystemBackendResult:
+    def _capable(self, cap: str) -> bool:
+        return self._capabilities.get(cap, False)
+
+    def _unsupported(self, cap: str | None = None) -> SystemBackendResult:
+        cap_name = cap or "system"
+        missing = [cmd for cmd, c in {
+            "volume": "pactl", "processes": "ps",
+            "clipboard_in": "wl-paste", "clipboard_out": "wl-copy",
+            "clipboard_fallback": "xclip", "screenshot": "grim",
+            "recording": "wf-recorder", "recording_fallback": "ffmpeg",
+            "power": "loginctl",
+        }.items() if c == cap_name and not shutil.which(cmd)]
         return SystemBackendResult(
             success=False,
-            message=f"Недоступно: отсутствуют {', '.join(self._missing)}",
+            message=f"Недоступно: отсутствуют {cap_name} (отсутствует: {', '.join(missing) if missing else 'неизвестно'})",
         )
 
     # ---------- Volume ----------
-    def get_volume(self) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+    def _default_sink(self) -> str | None:
+        """Resolve @DEFAULT_SINK@ to its actual name. Cached to avoid
+        drift if the default changes mid-session."""
+        if not hasattr(self, "_cached_sink") or not hasattr(self, "_sink_resolved_at"):
+            self._cached_sink = None
+            self._sink_resolved_at = 0.0
+        # Re-resolve every 5s (default-sink can change when a headset plugs in)
+        if self._cached_sink and (time.perf_counter() - self._sink_resolved_at) < 5.0:
+            return self._cached_sink
         try:
-            # PipeWire / PulseAudio: get default sink volume
-            cmd = [
-                "pactl",
-                "get-sink-volume",
-                "@DEFAULT_SINK@",
-            ]
+            res = subprocess.run(
+                ["pactl", "get-default-sink"],
+                capture_output=True, text=True, timeout=2.0,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                self._cached_sink = res.stdout.strip()
+                self._sink_resolved_at = time.perf_counter()
+                return self._cached_sink
+        except Exception:
+            pass
+        return self._cached_sink or "@DEFAULT_SINK@"
+
+    def get_volume(self) -> SystemBackendResult:
+        if not self._capable("volume"):
+            return SystemBackendResult(success=False, message="pactl не найден")
+        try:
+            sink = self._default_sink()
+            cmd = ["pactl", "get-sink-volume", sink]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -156,15 +192,17 @@ class LinuxSystemBackend(SystemBackend):
                     success=False,
                     message=f"Не удалось получить громкость: {result.stderr.strip()}",
                 )
-            # Output: "Volume: front-left: 65536 / 65536 (100%) ..."
             import re
-            match = re.search(r"(\d+)%", result.stdout)
-            if not match:
+            # Output: "Volume: front-left: 65536 / 65536 (100%) ..."
+            # The first % may be the first channel; if multiple channels,
+            # use the LAST match (the "% / %" line often shows the average).
+            matches = re.findall(r"(\d+)%", result.stdout)
+            if not matches:
                 return SystemBackendResult(
                     success=False,
                     message=f"Не удалось разобрать вывод: {result.stdout}",
                 )
-            percent = int(match.group(1))
+            percent = int(matches[-1])
             return SystemBackendResult(
                 success=True,
                 message=f"Громкость: {percent}%",
@@ -177,26 +215,49 @@ class LinuxSystemBackend(SystemBackend):
             )
 
     def set_volume(self, percent: int) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("volume"):
+            return SystemBackendResult(success=False, message="pactl не найден")
         percent = max(0, min(100, percent))
         try:
-            cmd = [
-                "pactl",
-                "set-sink-volume",
-                "@DEFAULT_SINK@",
-                f"{percent}%",
-            ]
+            sink = self._default_sink()
+
+            # Set sink volume
             result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5.0,
+                ["pactl", "set-sink-volume", sink, f"{percent}%"],
+                capture_output=True, text=True, timeout=5.0,
             )
             if result.returncode != 0:
                 return SystemBackendResult(
                     success=False,
                     message=f"Не удалось установить громкость: {result.stderr.strip()}",
+                )
+
+            # Also apply to all active streams (pw-play, etc.)
+            # so changing sink volume also silences any already-playing audio
+            streams = subprocess.run(
+                ["pactl", "list", "sink-inputs", "short"],
+                capture_output=True, text=True, timeout=5.0,
+            )
+            if streams.returncode == 0:
+                for line in streams.stdout.strip().splitlines():
+                    parts = line.split()
+                    if parts:
+                        stream_id = parts[0]
+                        subprocess.run(
+                            ["pactl", "set-sink-input-volume", stream_id, f"{percent}%"],
+                            capture_output=True, timeout=2.0,
+                        )
+
+            # Verify the change actually took effect
+            verify = self.get_volume()
+            actual = verify.data if verify.success else None
+            if actual is None or abs(actual - percent) > 2:
+                return SystemBackendResult(
+                    success=False,
+                    message=(
+                        f"Запрошено {percent}%, фактически {actual}% "
+                        f"(sink={sink}). Громкость не изменилась."
+                    ),
                 )
             return SystemBackendResult(
                 success=True,
@@ -210,8 +271,8 @@ class LinuxSystemBackend(SystemBackend):
 
     # ---------- Processes ----------
     def list_processes(self, limit: int = 10) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("processes"):
+            return SystemBackendResult(success=False, message="ps не найден")
         try:
             # ps aux --sort=-%cpu
             cmd = [
@@ -258,8 +319,8 @@ class LinuxSystemBackend(SystemBackend):
             )
 
     def kill_process(self, pid: int | None, name: str | None) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("processes"):
+            return SystemBackendResult(success=False, message="ps/kill не найдены")
         if pid is not None:
             try:
                 # Send SIGTERM
@@ -307,8 +368,8 @@ class LinuxSystemBackend(SystemBackend):
 
     # ---------- Clipboard ----------
     def get_clipboard(self) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not (self._capable("clipboard_in") or self._capable("clipboard_fallback")):
+            return SystemBackendResult(success=False, message="wl-paste/xclip не найдены")
         try:
             # wl‑clipboard (Wayland) first, fallback to xclip (X11)
             for cmd in [["wl-paste"], ["xclip", "-out", "-selection", "clipboard"]]:
@@ -337,8 +398,8 @@ class LinuxSystemBackend(SystemBackend):
             )
 
     def set_clipboard(self, text: str) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not (self._capable("clipboard_out") or self._capable("clipboard_fallback")):
+            return SystemBackendResult(success=False, message="wl-copy/xclip не найдены")
         try:
             # wl‑clipboard (Wayland) first, fallback to xclip (X11)
             for cmd in [["wl-copy"], ["xclip", "-in", "-selection", "clipboard"]]:
@@ -372,8 +433,8 @@ class LinuxSystemBackend(SystemBackend):
         destination: Path,
         full_screen: bool = True,
     ) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("screenshot"):
+            return SystemBackendResult(success=False, message="grim/scrot не найдены")
         try:
             # grim (Wayland) first, fallback to scrot (X11)
             if shutil.which("grim"):
@@ -414,30 +475,35 @@ class LinuxSystemBackend(SystemBackend):
 
     # ---------- Recording ----------
     def start_recording(self, destination: Path) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("recording"):
+            return SystemBackendResult(success=False, message="wf-recorder или ffmpeg не найдены")
         if self._recording_pid is not None:
             return SystemBackendResult(
                 success=False,
                 message="Запись уже ведётся",
             )
         try:
-            # wf-recorder (Wayland) or ffmpeg (X11)
-            if shutil.which("wf-recorder"):
-                cmd = ["wf-recorder", "-f", str(destination), "-g", "$(slurp)"]
-            elif shutil.which("ffmpeg"):
-                # Simple X11 screen recording (requires x11grab)
+            # Detect Wayland vs X11
+            wayland_display = os.environ.get("WAYLAND_DISPLAY")
+            x11_display = os.environ.get("DISPLAY")
+
+            if wayland_display and shutil.which("wf-recorder"):
+                cmd = ["wf-recorder", "-f", str(destination)]
+            elif x11_display and shutil.which("ffmpeg"):
                 cmd = [
                     "ffmpeg",
                     "-f", "x11grab",
-                    "-i", ":0.0",
+                    "-i", x11_display,
                     "-r", "30",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-y",
                     str(destination),
                 ]
             else:
                 return SystemBackendResult(
                     success=False,
-                    message="Не найдены wf-recorder или ffmpeg",
+                    message="Не найдены wf-recorder (Wayland) или ffmpeg+x11grab (X11)",
                 )
             process = subprocess.Popen(
                 cmd,
@@ -464,9 +530,8 @@ class LinuxSystemBackend(SystemBackend):
                 message="Нет активной записи",
             )
         try:
-            cmd = ["kill", "-SIGINT", str(self._recording_pid)]
-            result = subprocess.run(
-                cmd,
+            proc = subprocess.run(
+                ["kill", "-TERM", str(self._recording_pid)],
                 capture_output=True,
                 text=True,
                 timeout=5.0,
@@ -474,10 +539,10 @@ class LinuxSystemBackend(SystemBackend):
             duration = time.perf_counter() - self._recording_start
             self._recording_pid = None
             self._recording_start = 0.0
-            if result.returncode != 0:
+            if proc.returncode != 0:
                 return SystemBackendResult(
                     success=False,
-                    message=f"Не удалось остановить запись: {result.stderr.strip()}",
+                    message=f"Не удалось остановить запись: {proc.stderr.strip()}",
                 )
             return SystemBackendResult(
                 success=True,
@@ -491,29 +556,19 @@ class LinuxSystemBackend(SystemBackend):
 
     # ---------- Power ----------
     def power(self, action: PowerAction) -> SystemBackendResult:
-        if not self._available:
-            return self._unsupported()
+        if not self._capable("power"):
+            return SystemBackendResult(success=False, message="loginctl не найден")
         try:
-            # Use loginctl (systemd) with --user flag (no root)
-            # Requires polkit rules or user session permissions.
-            cmd = ["loginctl"]
-            if action == "sleep":
-                cmd.extend(["suspend"])
-            elif action == "hibernate":
-                cmd.extend(["hibernate"])
-            elif action == "shutdown":
-                cmd.extend(["poweroff"])
-            elif action == "reboot":
-                cmd.extend(["reboot"])
-            elif action == "logout":
-                cmd.extend(["terminate-user", str(os.getuid())])
+            # loginctl operates on the calling user's session (no root needed)
+            # --user flag is only valid for user-scoped commands
+            if action == "logout":
+                # terminate-user requires --user flag
+                cmd = ["loginctl", "--user", "terminate-user", str(os.getuid())]
             else:
-                return SystemBackendResult(
-                    success=False,
-                    message=f"Неизвестное действие: {action}",
-                )
-            # Append --user to avoid root requirement
-            cmd.append("--user")
+                # suspend / hibernate / poweroff / reboot act on current session
+                subcmd = {"sleep": "suspend", "hibernate": "hibernate",
+                          "shutdown": "poweroff", "reboot": "reboot"}[action]
+                cmd = ["loginctl", subcmd]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -648,9 +703,11 @@ class SystemBackendFactory:
         """
         if sys.platform == "linux":
             backend = LinuxSystemBackend()
-            if backend._available:
+            # Per-capability: if at least one capability is available, use the
+            # real backend (unavailable capabilities return errors per-call).
+            if any(backend._capabilities.values()):
                 return backend
-            # Fall through to stub
+            # Fall through to stub only if every binary is missing
         elif sys.platform == "darwin":
             return MacOSSystemBackend()
         elif sys.platform == "win32":

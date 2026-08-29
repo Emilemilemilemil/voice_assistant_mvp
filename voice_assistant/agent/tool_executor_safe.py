@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from tools.base import ToolResult
-
 from safety.permissions import PermissionManager
 from safety.confirm import ConfirmationPrompter, AutoApprovePrompter
+from safety.risk import RiskLevel
 from safety.sandbox import ExecutionSandbox
 
 
@@ -59,10 +59,14 @@ class SafeToolExecutor:
         if not decision.allowed:
             return f"[permission denied] {decision.reason}"
 
-        # 2. Confirmation prompt (if required and not explicitly allowed)
+        # 2. Confirmation prompt (if required and not explicitly allowed
+        #     for SAFE/CONFIRM; DESTRUCTIVE always confirms).
         if (
-            tool.risk.requires_confirmation()
-            and not self.permissions.is_explicitly_allowed(name)
+            tool.risk == RiskLevel.DESTRUCTIVE
+            or (
+                tool.risk.requires_confirmation()
+                and not self.permissions.is_explicitly_allowed(name)
+            )
         ):
             confirmed = self.prompter.prompt(
                 name,

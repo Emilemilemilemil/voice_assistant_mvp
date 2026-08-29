@@ -29,7 +29,7 @@ class ToolRegistry:
             "move_file": "tools.filesystem:MoveFileTool",
             # Filesystem (DESTRUCTIVE)
             "delete_file": "tools.filesystem:DeleteFileTool",
-            "delete_directory": "tools.filesystem:DeleteDirectoryTool", # not destructive 
+            "delete_directory": "tools.filesystem:DeleteDirectoryTool", 
             "run_script": "tools.filesystem:RunScriptTool",
             # System (SAFE)
             "get_volume": "tools.system_tool:GetVolumeTool",

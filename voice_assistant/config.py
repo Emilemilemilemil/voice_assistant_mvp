@@ -64,7 +64,7 @@ class Config:
     # Filesystem tools
     fs_root: Path = Path(
         os.getenv("FS_ROOT") or str(Path.home())
-    )
+    ).resolve()
     fs_max_read_bytes: int = env_int("FS_MAX_READ_BYTES", 5_242_880)  # 5 MB
     fs_max_read_lines: int = env_int("FS_MAX_READ_LINES", 10_000)
 

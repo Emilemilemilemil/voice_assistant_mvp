@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 import shutil
 import subprocess
@@ -9,6 +10,27 @@ from pathlib import Path
 from safety.risk import RiskLevel
 from tools.base import Tool, ToolResult
 from config import Config
+
+
+def _similar_name_hint(path: Path) -> str:
+    """Return a 'did you mean X?' hint if path doesn't exist but a similar name does."""
+    if path.exists():
+        return ""
+    parent = path.parent
+    if not (parent.exists() and parent.is_dir()):
+        return ""
+    candidates = [e.name for e in parent.iterdir()]
+    if not candidates:
+        return ""
+    # Case-insensitive exact match (e.g. "book" → "Book")
+    for name in candidates:
+        if name.lower() == path.name.lower():
+            return f" (perhaps you meant «{name}»?)"
+    # Fuzzy match for transliteration / typos (e.g. "book" → "бук")
+    close = difflib.get_close_matches(path.name, candidates, n=1, cutoff=0.5)
+    if close:
+        return f" (perhaps you meant «{close[0]}»?)"
+    return ""
 
 
 # =========================================================
@@ -31,10 +53,25 @@ def fs_guard(path: str | Path, config: Config) -> tuple[bool, Path, str]:
     if isinstance(path, str):
         path = Path(path)
 
+    # Resolve relative paths against fs_root (not current working directory)
+    if not path.is_absolute():
+        path = config.fs_root / path
+
     # Reject any path component containing sudo/pkexec/doas/su token
     # (defends against run_script arguments trying to escalate)
+    # Use word boundaries so 'su' doesn't match inside 'sub' or 'notes.txt'.
+    # Tokens like 'pkexec_install' (no space) are still caught by detecting
+    # these as substrings of any token.
     for part in path.parts:
-        if re.search(r'\b(sudo|pkexec|doas|su)\b', part, flags=re.IGNORECASE):
+        if re.search(r'\b(sudo|pkexec|doas)\b', part, flags=re.IGNORECASE):
+            return (
+                False,
+                path,
+                f"Security: path component contains privilege-escalation token: {part}",
+            )
+        # 'su' alone is too short for reliable word boundary; require it
+        # to be preceded by start/whitespace and followed by whitespace/separator.
+        if re.search(r'(?:^|[\s/=])su(?:[\s/]|$)', part, flags=re.IGNORECASE):
             return (
                 False,
                 path,
@@ -54,6 +91,21 @@ def fs_guard(path: str | Path, config: Config) -> tuple[bool, Path, str]:
         )
 
     try:
+        # Case-insensitive fallback for paths that may be typed with
+        # wrong case (STT / user typo). Only apply when exact path
+        # fails and we are inside fs_root.
+        if not resolved.exists() and not resolved.is_dir():
+            # Try to find a matching entry in parent (case-insensitive)
+            parent = resolved.parent
+            if parent.exists() and parent.is_dir():
+                for entry in parent.iterdir():
+                    if entry.name.lower() == resolved.name.lower():
+                        resolved = entry.resolve()
+                        break
+    except Exception:
+        pass
+
+    try:
         # Is the resolved path inside fs_root?
         resolved.relative_to(config.fs_root.resolve())
     except ValueError:
@@ -64,6 +116,32 @@ def fs_guard(path: str | Path, config: Config) -> tuple[bool, Path, str]:
         )
 
     return (True, resolved, "")
+
+
+DANGEROUS_PATTERNS = [
+    r"run\s+sudo",
+    r"sudo\s+rm",
+    r"sudo\s+chmod\s+777",
+    r"sudo\s+chown",
+    r"dd\s+if=.*of=/dev/",
+    r"\bmkfs\b",
+    r"rm\s+-rf\s+/",
+    r"rm\s+-rf\s+\*",
+    r">:?\s*/etc/shadow",
+    r"\bwget.*curl.*\|\s*sh\b",
+]
+
+
+def _check_script_dangerous(script_path: Path) -> str | None:
+    """Scan script contents for dangerous command patterns."""
+    try:
+        content = script_path.read_text(encoding="utf-8", errors="replace")
+        for pattern in DANGEROUS_PATTERNS:
+            if re.search(pattern, content, re.IGNORECASE):
+                return f"Dangerous pattern matched: {pattern}"
+    except Exception:
+        pass
+    return None
 
 
 def validate_script_content(script_path: Path, config: Config) -> tuple[bool, str]:
@@ -203,7 +281,8 @@ class ListDirectoryTool(Tool):
             return ToolResult(success=False, output=error)
 
         if not resolved.exists():
-            return ToolResult(success=False, output=f"Директория не существует: {resolved}")
+            hint = _similar_name_hint(resolved)
+            return ToolResult(success=False, output=f"Директория не существует: {resolved}{hint}")
         if not resolved.is_dir():
             return ToolResult(success=False, output=f"Не директория: {resolved}")
 
@@ -608,7 +687,8 @@ class DeleteFileTool(Tool):
             return ToolResult(success=False, output=error)
 
         if not resolved.exists():
-            return ToolResult(success=False, output=f"Файл не существует: {resolved}")
+            hint = _similar_name_hint(resolved)
+            return ToolResult(success=False, output=f"Файл не существует: {resolved}{hint}")
         if not resolved.is_file():
             return ToolResult(success=False, output=f"Не файл: {resolved}")
 
@@ -624,7 +704,7 @@ class DeleteFileTool(Tool):
 
 class DeleteDirectoryTool(Tool):
     name = "delete_directory"
-    risk = RiskLevel.CONFIRM
+    risk = RiskLevel.DESTRUCTIVE
     description = """
     Удаляет директорию (только если пуста).
 
@@ -666,7 +746,8 @@ class DeleteDirectoryTool(Tool):
             return ToolResult(success=False, output=error)
 
         if not resolved.exists():
-            return ToolResult(success=False, output=f"Директория не существует: {resolved}")
+            hint = _similar_name_hint(resolved)
+            return ToolResult(success=False, output=f"Директория не существует: {resolved}{hint}")
         if not resolved.is_dir():
             return ToolResult(success=False, output=f"Не директория: {resolved}")
 
@@ -730,12 +811,18 @@ class RunScriptTool(Tool):
             return ToolResult(success=False, output=error)
 
         if not resolved.exists():
-            return ToolResult(success=False, output=f"Скрипт не существует: {resolved}")
+            hint = _similar_name_hint(resolved)
+            return ToolResult(success=False, output=f"Скрипт не существует: {resolved}{hint}")
         if not resolved.is_file():
             return ToolResult(success=False, output=f"Не файл: {resolved}")
 
-        # Additional script validation (no sudo/pkexec tokens already checked in fs_guard)
-        # Could also check shebang for dangerous interpreters.
+        # Scan content for dangerous patterns
+        danger = _check_script_dangerous(resolved)
+        if danger:
+            return ToolResult(
+                success=False,
+                output=f"Script blocked: {danger}",
+            )
 
         try:
             # Run script with current user privileges
@@ -749,7 +836,10 @@ class RunScriptTool(Tool):
             )
             output_lines = []
             if result.stdout:
-                output_lines.append(result.stdout.rstrip())
+                stdout_text = result.stdout.rstrip()
+                if len(stdout_text) > 2000:
+                    stdout_text = stdout_text[:2000] + f"\n[... stdout truncated {len(result.stdout)} chars]"
+                output_lines.append(stdout_text)
             if result.stderr:
                 output_lines.append(f"[stderr] {result.stderr.rstrip()}")
             if result.returncode != 0:
