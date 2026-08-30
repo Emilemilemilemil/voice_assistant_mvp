@@ -18,6 +18,8 @@ from tts.piper import PiperTTS
 from tts.sentence_buffer import SentenceBuffer
 from tts.worker import TTSWorker
 from tools.registry import ToolRegistry
+from tools.media_backend import MediaBackendFactory
+from tools.media_tool import set_backend as set_media_backend
 from agent.tool_executor_safe import SafeToolExecutor
 from safety.permissions import PermissionManager
 from safety.confirm import ConfirmationPrompter
@@ -111,6 +113,10 @@ def main():
     )
 
     registry = ToolRegistry()
+
+    # Initialize media backend and inject into media tools
+    media_backend = MediaBackendFactory.create()
+    set_media_backend(media_backend)
 
     # SAFETY layer
     # Wire destructive tools allow-list from config

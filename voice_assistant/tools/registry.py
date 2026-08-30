@@ -43,6 +43,14 @@ class ToolRegistry:
             # System (DESTRUCTIVE)
             "kill_process": "tools.system_tool:KillProcessTool",
             "system_power": "tools.system_tool:SystemPowerTool",
+            # Media (SAFE)
+            "media_play": "tools.media_tool:MediaPlayTool",
+            "media_pause": "tools.media_tool:MediaPauseTool",
+            "media_next": "tools.media_tool:MediaNextTool",
+            "media_previous": "tools.media_tool:MediaPreviousTool",
+            "media_status": "tools.media_tool:MediaStatusTool",
+            # Media (CONFIRM)
+            "media_stop": "tools.media_tool:MediaStopTool",
         }
 
     def get(self, name: str) -> Tool | None:

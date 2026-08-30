@@ -119,6 +119,12 @@ If Piper is not configured, the assistant prints the answer instead of speaking 
 Tools use native OpenAI function calling (`tools=` in the request). Each tool declares its JSON Schema in `tools/`; the registry feeds schemas to the model, and returned `tool_calls` are executed and fed back as `role: "tool"` messages until the model produces a spoken reply (max 3 rounds).
 
 **Available tools:**
+- `media_play` (SAFE) — resume playback
+- `media_pause` (SAFE) — pause playback
+- `media_stop` (SAFE) — stop playback
+- `media_next` (SAFE) — skip to next track
+- `media_previous` (SAFE) — go to previous track
+- `media_status` (SAFE) — current track and playback state
 - `get_current_time` (SAFE) — returns current time
 - `open_application` (SAFE) — launches apps via `.desktop` file indexing (uses `gio launch`); includes security validation (only launches from allowed directories)
 - `browser_search` (SAFE) — opens a Google search tab via `xdg-open`
@@ -145,6 +151,13 @@ Prevents malicious `.desktop` files with destructive `Exec=` lines from being ex
 - macOS/Windows backends exist as stubs that return "not yet implemented"; factory falls back to a generic unavailable backend if Linux binaries are missing.
 - DESTRUCTIVE tools (`kill_process`, `system_power`) are blocked unless listed in `ALLOWED_DESTRUCTIVE_TOOLS` in `.env` AND the user confirms.
 - `take_screenshot` / `start_recording` are restricted to the home directory; absolute paths are rejected.
+
+### Media Tools (`tools/media_tool.py`)
+- `MediaBackend` ABC with `LinuxMPRISBackend` implementation using `playerctl` (MPRIS/D-Bus standard).
+- Controls any MPRIS-capable player: VLC, Spotify, mpv, browser media (Chromium/Firefox), and others.
+- Risk levels: `SAFE` for play/pause/next/previous/status; `CONFIRM` for stop.
+- Status returns track info: "Artist - Title (Playing/Paused/Stopped)" or error messages.
+- Falls back to `UnavailableMediaBackend` if `playerctl` is not installed.
 
 ## Run
 
