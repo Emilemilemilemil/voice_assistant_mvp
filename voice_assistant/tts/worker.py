@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-import time
 from queue import Queue, Empty
 from threading import Thread
 
@@ -16,9 +14,9 @@ class TTSWorker:
             target=self._run,
             daemon=True,
         )
-        # Reference to the currently-running audio playback process (or None).
-        # The interrupt listener uses this to kill playback on key press.
-        self._current_proc: subprocess.Popen | None = None
+        # Set when TTS is actively playing; main loop can read this to
+        # know whether to enable the interrupt key.
+        self.is_speaking: bool = False
 
     def start(self):
         self.thread.start()
@@ -33,12 +31,10 @@ class TTSWorker:
     def interrupt(self):
         """Stop current playback and clear the queue."""
         # Kill the active audio process (pw-play) if any
-        if self._current_proc and self._current_proc.poll() is None:
-            try:
-                self._current_proc.terminate()
-            except Exception:
-                pass
-        # Drain pending sentences
+        player = getattr(self.tts, "audio_player", None)
+        if player is not None and hasattr(player, "interrupt"):
+            player.interrupt()
+        # Drain pending sentences so we don't start the next one
         try:
             while True:
                 self.queue.get_nowait()
@@ -54,17 +50,11 @@ class TTSWorker:
                 self.queue.task_done()
                 break
 
-            # Track the active audio process so the main thread can interrupt it
-            self._current_proc = None
+            self.is_speaking = True
             try:
-                # Synthesize first (no audio running yet)
-                wav_path = self.tts.synthesize(item)
-                if wav_path is None:
-                    continue
-                # Play with an interruptible wrapper
-                self.tts.play_with_interrupt(wav_path, self)
+                self.tts.speak(item)
             except Exception as exc:
                 print(f"[tts] playback failed: {exc!r}")
             finally:
-                self._current_proc = None
+                self.is_speaking = False
                 self.queue.task_done()

@@ -29,25 +29,36 @@ class AudioPlayer(ABC):
 class PipeWirePlayer(AudioPlayer):
     """Linux PipeWire audio player (pw-play)."""
 
+    def __init__(self):
+        # Active playback process (used for interruption)
+        self._proc: subprocess.Popen | None = None
+
     def play(self, wav_path: Path) -> tuple[bool, str]:
         """Play a WAV file using pw-play (PipeWire)."""
         try:
-            subprocess.run(
-                [
-                    "pw-play",
-                    str(wav_path),
-                ],
-                check=True,
+            self._proc = subprocess.Popen(
+                ["pw-play", str(wav_path)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
+            self._proc.wait()
+            result = self._proc
+            self._proc = None
+            if result.returncode != 0:
+                return (False, f"pw-play exited {result.returncode}")
             return (True, "playback complete")
-        except subprocess.CalledProcessError as exc:
-            return (False, f"pw-play failed: {exc.stderr}")
-        except FileNotFoundError:
-            return (False, "pw-play not found")
         except Exception as exc:
             return (False, f"playback error: {exc}")
+
+    def interrupt(self):
+        """Kill active pw-play process."""
+        if self._proc and self._proc.poll() is None:
+            try:
+                self._proc.kill()
+                self._proc.wait(timeout=1)
+            except Exception:
+                pass
+            self._proc = None
 
 
 class AudioPlayerFactory:
